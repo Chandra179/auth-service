@@ -1,4 +1,4 @@
-module github.com/Chandra179/oauth2-service
+module github.com/Chandra179/auth-service
 
 go 1.23
 

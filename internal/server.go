@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/Chandra179/oauth2-service/configs"
+	"github.com/Chandra179/auth-service/configs"
 )
 
 func StartServer() {

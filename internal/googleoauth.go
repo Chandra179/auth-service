@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Chandra179/oauth2-service/configs"
+	"github.com/Chandra179/auth-service/configs"
 	"golang.org/x/oauth2"
 	"golang.org/x/time/rate"
 )
@@ -153,14 +153,14 @@ func (g *GoogleOauth) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, authURL, http.StatusTemporaryRedirect)
 }
 
-func (g *GoogleOauth) CallbackHandler(w http.ResponseWriter, r *http.Request) {
+func (g *GoogleOauth) LoginCallbackHandler(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
 	if !g.Limiter.Allow() {
 		http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
 		return
 	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-	defer cancel()
 
 	state := r.URL.Query().Get("state")
 	oauthState, exists := g.StateStore.Get(state)
@@ -182,86 +182,20 @@ func (g *GoogleOauth) CallbackHandler(w http.ResponseWriter, r *http.Request) {
 
 	g.TokenStore.SetToken(token)
 	g.Logger.Printf("Token successfully exchanged and stored")
-	http.Redirect(w, r, "/success", http.StatusSeeOther)
+	http.Redirect(w, r, "/success?access_token="+token.AccessToken, http.StatusSeeOther)
 }
 
-func (g *GoogleOauth) RefreshHandler(w http.ResponseWriter, r *http.Request) {
-	if !g.Limiter.Allow() {
-		http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-	defer cancel()
-
-	token := g.TokenStore.GetToken()
-	if token == nil {
-		g.Logger.Print("No token found")
-		http.Error(w, "No token found", http.StatusBadRequest)
-		return
-	}
-
-	if token.Expiry.Before(time.Now()) {
-		ts := g.Config.TokenSource(ctx, token)
-		newToken, err := ts.Token()
-		if err != nil {
-			g.Logger.Printf("Failed to refresh token: %v", err)
-			http.Error(w, "Failed to refresh token", http.StatusInternalServerError)
-			return
-		}
-		g.TokenStore.SetToken(newToken)
-		g.Logger.Print("Token refreshed successfully")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("Token refreshed successfully"))
+func (g *GoogleOauth) RefreshToken(ctx context.Context, token *oauth2.Token) {
+	token, err := g.Config.TokenSource(ctx, token).Token()
+	if err != nil {
+		g.Logger.Printf("Background refresh failed: %v", err)
 	} else {
-		g.Logger.Print("Token is still valid")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("Token is still valid"))
+		g.TokenStore.SetToken(token)
+		g.Logger.Print("Token refreshed in background")
 	}
 }
 
 func (g *GoogleOauth) SetupRoutes() {
-	http.HandleFunc("/login", g.LoginHandler)
-	http.HandleFunc("/callback", g.CallbackHandler)
-	http.HandleFunc("/refresh", g.RefreshHandler)
-}
-
-func (g *GoogleOauth) StartCleanupRoutine(ctx context.Context, interval, maxAge time.Duration) {
-	ticker := time.NewTicker(interval)
-	go func() {
-		for {
-			select {
-			case <-ticker.C:
-				g.StateStore.Cleanup(maxAge)
-			case <-ctx.Done():
-				ticker.Stop()
-				return
-			}
-		}
-	}()
-}
-
-func (g *GoogleOauth) StartBackgroundRefresh(ctx context.Context, refreshInterval time.Duration) {
-	ticker := time.NewTicker(refreshInterval)
-	go func() {
-		for {
-			select {
-			case <-ticker.C:
-				token := g.TokenStore.GetToken()
-				if token != nil && token.Expiry.Add(-time.Minute).Before(time.Now()) {
-					ts := g.Config.TokenSource(ctx, token)
-					newToken, err := ts.Token()
-					if err != nil {
-						g.Logger.Printf("Background refresh failed: %v", err)
-					} else {
-						g.TokenStore.SetToken(newToken)
-						g.Logger.Print("Token refreshed in background")
-					}
-				}
-			case <-ctx.Done():
-				ticker.Stop()
-				return
-			}
-		}
-	}()
+	http.HandleFunc("/v1/google/login", g.LoginHandler)
+	http.HandleFunc("/v1/google/callback", g.LoginCallbackHandler)
 }

@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/Chandra179/oauth2-service/internal"
+	"github.com/Chandra179/auth-service/internal"
 )
 
 func main() {
