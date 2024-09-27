@@ -10,7 +10,7 @@ type Authtentication interface {
 	RefreshToken(w http.ResponseWriter, r *http.Request)
 }
 
-func SetupRoutes(a Authtentication) {
+func SetupRoutes(a Authtentication, RedirectURL string) {
 	http.HandleFunc("/login", a.Login)
-	http.HandleFunc("/login/callback", a.LoginCallback)
+	http.HandleFunc(RedirectURL, a.LoginCallback)
 }

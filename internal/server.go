@@ -29,7 +29,7 @@ func StartServer() {
 	// --------------
 	// API setup
 	// --------------
-	api.SetupRoutes(googleOauth)
+	api.SetupRoutes(googleOauth, config.GoogleOauth.RedirectURL)
 	//---------------
 	// Http Server
 	// --------------
