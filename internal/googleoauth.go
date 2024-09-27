@@ -130,7 +130,7 @@ func generateSecureToken() string {
 	return base64.RawURLEncoding.EncodeToString(b)
 }
 
-func (g *GoogleOauth) LoginHandler(w http.ResponseWriter, r *http.Request) {
+func (g *GoogleOauth) Login(w http.ResponseWriter, r *http.Request) {
 	if !g.Limiter.Allow() {
 		http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
 		return
@@ -153,7 +153,7 @@ func (g *GoogleOauth) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, authURL, http.StatusTemporaryRedirect)
 }
 
-func (g *GoogleOauth) LoginCallbackHandler(w http.ResponseWriter, r *http.Request) {
+func (g *GoogleOauth) LoginCallback(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
@@ -185,7 +185,11 @@ func (g *GoogleOauth) LoginCallbackHandler(w http.ResponseWriter, r *http.Reques
 	http.Redirect(w, r, "/success?access_token="+token.AccessToken, http.StatusSeeOther)
 }
 
-func (g *GoogleOauth) RefreshToken(ctx context.Context, token *oauth2.Token) {
+func (g *GoogleOauth) RefreshToken(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	token := g.TokenStore.GetToken()
 	token, err := g.Config.TokenSource(ctx, token).Token()
 	if err != nil {
 		g.Logger.Printf("Background refresh failed: %v", err)
@@ -193,9 +197,4 @@ func (g *GoogleOauth) RefreshToken(ctx context.Context, token *oauth2.Token) {
 		g.TokenStore.SetToken(token)
 		g.Logger.Print("Token refreshed in background")
 	}
-}
-
-func (g *GoogleOauth) SetupRoutes() {
-	http.HandleFunc("/v1/google/login", g.LoginHandler)
-	http.HandleFunc("/v1/google/callback", g.LoginCallbackHandler)
 }
