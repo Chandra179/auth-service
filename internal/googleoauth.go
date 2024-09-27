@@ -154,7 +154,7 @@ func (g *GoogleOauth) Login(w http.ResponseWriter, r *http.Request) {
 }
 
 func (g *GoogleOauth) LoginCallback(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
 	if !g.Limiter.Allow() {
@@ -192,9 +192,8 @@ func (g *GoogleOauth) RefreshToken(w http.ResponseWriter, r *http.Request) {
 	token := g.TokenStore.GetToken()
 	token, err := g.Config.TokenSource(ctx, token).Token()
 	if err != nil {
-		g.Logger.Printf("Background refresh failed: %v", err)
+		g.Logger.Printf("Refresh failed: %v", err)
 	} else {
 		g.TokenStore.SetToken(token)
-		g.Logger.Print("Token refreshed in background")
 	}
 }
