@@ -1,0 +1,71 @@
+package redis
+
+import (
+	"context"
+	"time"
+
+	"log"
+
+	"github.com/redis/go-redis/v9"
+)
+
+// RedisClient wraps the redis.Client to expose common operations.
+type RedisClient struct {
+	client *redis.Client
+	ctx    context.Context
+}
+
+// NewRedisClient creates a new Redis client abstraction.
+func NewRedisClient(addr string, password string, db int) *RedisClient {
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     addr,
+		Password: password,
+		DB:       db,
+	})
+
+	// Testing connection
+	ctx := context.Background()
+	_, err := rdb.Ping(ctx).Result()
+	if err != nil {
+		log.Fatalf("Failed to connect to Redis: %v", err)
+	}
+
+	return &RedisClient{
+		client: rdb,
+		ctx:    ctx,
+	}
+}
+
+// Set a key-value pair in Redis with an optional expiration time.
+func (r *RedisClient) Set(key string, value interface{}, expiration time.Duration) error {
+	return r.client.Set(r.ctx, key, value, expiration).Err()
+}
+
+// Get retrieves the value for a given key.
+func (r *RedisClient) Get(key string) (string, error) {
+	return r.client.Get(r.ctx, key).Result()
+}
+
+// Delete removes a key from Redis.
+func (r *RedisClient) Delete(key string) error {
+	return r.client.Del(r.ctx, key).Err()
+}
+
+// Exists checks if a key exists in Redis.
+func (r *RedisClient) Exists(key string) (bool, error) {
+	result, err := r.client.Exists(r.ctx, key).Result()
+	if err != nil {
+		return false, err
+	}
+	return result > 0, nil
+}
+
+// Expire sets the expiration time for a key.
+func (r *RedisClient) Expire(key string, expiration time.Duration) error {
+	return r.client.Expire(r.ctx, key, expiration).Err()
+}
+
+// Close shuts down the Redis client.
+func (r *RedisClient) Close() error {
+	return r.client.Close()
+}

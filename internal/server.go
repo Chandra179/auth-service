@@ -8,6 +8,7 @@ import (
 
 	"github.com/Chandra179/auth-service/api"
 	"github.com/Chandra179/auth-service/configs"
+	"github.com/Chandra179/auth-service/pkg/redis"
 )
 
 func StartServer() {
@@ -23,9 +24,13 @@ func StartServer() {
 	// --------------
 	logger := log.New(os.Stdout, "INFO: ", log.Ldate|log.Ltime|log.Lshortfile)
 	// --------------
+	// Redis
+	// --------------
+	rdb := redis.NewRedisClient("localhost:6379", "", 0)
+	// --------------
 	// Oauth
 	// --------------
-	googleOauth := NewGoogleOauth(config, NewStateStore(), NewTokenStore(), logger)
+	googleOauth := NewGoogleOauth(config, rdb, logger)
 	// --------------
 	// API setup
 	// --------------

@@ -4,12 +4,14 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"fmt"
 	"log"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/Chandra179/auth-service/configs"
+	"github.com/Chandra179/auth-service/pkg/redis"
 	"golang.org/x/oauth2"
 	"golang.org/x/time/rate"
 )
@@ -84,11 +86,12 @@ func (ts *TokenStore) GetToken() *oauth2.Token {
 }
 
 type GoogleOauth struct {
-	Config     *oauth2.Config
-	StateStore StateStorer
-	TokenStore TokenStorer
-	Logger     *log.Logger
-	Limiter    *rate.Limiter
+	Config      *oauth2.Config
+	StateStore  StateStorer
+	TokenStore  TokenStorer
+	Logger      *log.Logger
+	Limiter     *rate.Limiter
+	RedisClient *redis.RedisClient
 }
 
 type StateStorer interface {
@@ -103,7 +106,7 @@ type TokenStorer interface {
 	GetToken() *oauth2.Token
 }
 
-func NewGoogleOauth(cfg *configs.Config, stateStore StateStorer, tokenStore TokenStorer, logger *log.Logger) *GoogleOauth {
+func NewGoogleOauth(cfg *configs.Config, redisClient *redis.RedisClient, logger *log.Logger) *GoogleOauth {
 	oauth2Config := &oauth2.Config{
 		ClientID:     cfg.GoogleOauth.ClientID,
 		ClientSecret: cfg.GoogleOauth.ClientSecret,
@@ -113,21 +116,20 @@ func NewGoogleOauth(cfg *configs.Config, stateStore StateStorer, tokenStore Toke
 	}
 
 	return &GoogleOauth{
-		Config:     oauth2Config,
-		StateStore: stateStore,
-		TokenStore: tokenStore,
-		Logger:     logger,
-		Limiter:    rate.NewLimiter(rate.Every(time.Second), 10), // 10 requests per second
+		Config:      oauth2Config,
+		RedisClient: redisClient,
+		Logger:      logger,
+		Limiter:     rate.NewLimiter(rate.Every(time.Second), 10), // 10 requests per second
 	}
 }
 
-func generateSecureToken() string {
+func generateRandomString() (string, error) {
 	b := make([]byte, 32)
 	_, err := rand.Read(b)
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("failed to generate secure token: %w", err)
 	}
-	return base64.RawURLEncoding.EncodeToString(b)
+	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
 func (g *GoogleOauth) Login(w http.ResponseWriter, r *http.Request) {
@@ -136,11 +138,20 @@ func (g *GoogleOauth) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	state := generateSecureToken()
-	verifier := generateSecureToken()
+	state, err := generateRandomString()
+	if err != nil {
+		http.Error(w, "Failed to generate rand string", http.StatusInternalServerError)
+		return
+	}
+	verifier, err := generateRandomString()
+	if err != nil {
+		http.Error(w, "Failed to generate rand string", http.StatusInternalServerError)
+		return
+	}
 	challenge := oauth2.S256ChallengeFromVerifier(verifier)
 
-	g.StateStore.Set(state, verifier)
+	g.RedisClient.Set(state, verifier, 5*time.Minute)
+	// g.StateStore.Set(state, verifier)
 
 	authURL := g.Config.AuthCodeURL(
 		state,
@@ -163,33 +174,45 @@ func (g *GoogleOauth) LoginCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	state := r.URL.Query().Get("state")
-	oauthState, exists := g.StateStore.Get(state)
-	if !exists {
+	oauthState, exists := g.RedisClient.Get(state)
+	// oauthState, exists := g.StateStore.Get(state)
+	if exists != nil {
 		g.Logger.Printf("Invalid state received: %s", state)
 		http.Error(w, "Invalid state", http.StatusBadRequest)
 		return
 	}
 
-	g.StateStore.Delete(state)
+	g.RedisClient.Delete(state)
+	// g.StateStore.Delete(state)
 
 	code := r.URL.Query().Get("code")
-	token, err := g.Config.Exchange(ctx, code, oauth2.VerifierOption(oauthState.Verifier))
+	token, err := g.Config.Exchange(ctx, code, oauth2.VerifierOption(oauthState))
 	if err != nil {
 		g.Logger.Printf("Failed to exchange token: %v", err)
 		http.Error(w, "Failed to exchange token", http.StatusInternalServerError)
 		return
 	}
 
-	g.TokenStore.SetToken(token)
+	// Set the HTTP-only and secure cookies for access and refresh tokens
+	http.SetCookie(w, &http.Cookie{
+		Name:     "access_token",
+		Value:    token, // consist of (access_token, refresh, expired, etc..)
+		Path:     "/",
+		HttpOnly: true,
+		// Secure:   true,                    // Ensure this is set to true when using HTTPS
+		SameSite: http.SameSiteStrictMode, // Adjust as per your requirements
+	})
+
+	// g.TokenStore.SetToken(token)
 	g.Logger.Printf("Token successfully exchanged and stored")
-	http.Redirect(w, r, "/success?access_token="+token.AccessToken, http.StatusSeeOther)
+	http.Redirect(w, r, "/success", http.StatusSeeOther)
 }
 
 func (g *GoogleOauth) RefreshToken(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	token := g.TokenStore.GetToken()
+	// token := g.TokenStore.GetToken()
 	token, err := g.Config.TokenSource(ctx, token).Token()
 	if err != nil {
 		g.Logger.Printf("Refresh failed: %v", err)
