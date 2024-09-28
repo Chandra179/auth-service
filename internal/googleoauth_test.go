@@ -2,6 +2,7 @@ package internal
 
 import (
 	"bytes"
+	"encoding/json"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -107,4 +108,123 @@ func TestLogin(t *testing.T) {
 
 	stateStore.AssertExpectations(t)
 	assert.Contains(t, logBuffer.String(), "Generated auth URL:")
+}
+
+func TestLoginCallback(t *testing.T) {
+	cfg := &configs.Config{
+		GoogleOauth: oauth2.Config{
+			ClientID:     "test-client-id",
+			ClientSecret: "test-client-secret",
+			RedirectURL:  "http://localhost:8080/callback",
+			Scopes:       []string{"email", "profile"},
+			Endpoint:     oauth2.Endpoint{AuthURL: "http://example.com/auth", TokenURL: "http://example.com/token"},
+		},
+	}
+	stateStore := &MockStateStorer{}
+	tokenStore := &MockTokenStorer{}
+
+	var logBuffer bytes.Buffer
+	logger := log.New(&logBuffer, "", log.LstdFlags)
+
+	googleOauth := NewGoogleOauth(cfg, stateStore, tokenStore, logger)
+
+	// Mock the state store
+	stateStore.On("Get", "test-state").Return(OAuthState{
+		State:    "test-state",
+		Verifier: "test-verifier",
+		Created:  time.Now(),
+	}, true)
+	stateStore.On("Delete", "test-state").Return()
+
+	// Mock the token store
+	tokenStore.On("SetToken", mock.AnythingOfType("*oauth2.Token")).Return()
+
+	// Create a test server to mock the token exchange
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "test-verifier", r.FormValue("code_verifier"))
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"access_token":  "test-access-token",
+			"token_type":    "Bearer",
+			"refresh_token": "test-refresh-token",
+			"expires_in":    3600,
+		})
+	}))
+	defer ts.Close()
+
+	// Override the token URL for testing
+	googleOauth.Config.Endpoint.TokenURL = ts.URL
+
+	req, err := http.NewRequest("GET", "/callback?state=test-state&code=test-code", nil)
+	assert.NoError(t, err)
+
+	rr := httptest.NewRecorder()
+	handler := http.HandlerFunc(googleOauth.LoginCallback)
+
+	handler.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusSeeOther, rr.Code)
+	assert.Contains(t, rr.Header().Get("Location"), "/success?access_token=test-access-token")
+
+	stateStore.AssertExpectations(t)
+	tokenStore.AssertExpectations(t)
+	assert.Contains(t, logBuffer.String(), "Token successfully exchanged and stored")
+}
+
+func TestRefreshToken(t *testing.T) {
+	cfg := &configs.Config{
+		GoogleOauth: oauth2.Config{
+			ClientID:     "test-client-id",
+			ClientSecret: "test-client-secret",
+			RedirectURL:  "http://localhost:8080/callback",
+			Scopes:       []string{"email", "profile"},
+			Endpoint:     oauth2.Endpoint{AuthURL: "http://example.com/auth", TokenURL: "http://example.com/token"},
+		},
+	}
+	stateStore := &MockStateStorer{}
+	tokenStore := &MockTokenStorer{}
+
+	var logBuffer bytes.Buffer
+	logger := log.New(&logBuffer, "", log.LstdFlags)
+
+	googleOauth := NewGoogleOauth(cfg, stateStore, tokenStore, logger)
+
+	// Mock the token store
+	oldToken := &oauth2.Token{
+		AccessToken:  "old-access-token",
+		TokenType:    "Bearer",
+		RefreshToken: "old-refresh-token",
+		Expiry:       time.Now().Add(-time.Hour), // Expired token
+	}
+	tokenStore.On("GetToken").Return(oldToken)
+	tokenStore.On("SetToken", mock.AnythingOfType("*oauth2.Token")).Return()
+
+	// Create a test server to mock the token refresh
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "old-refresh-token", r.FormValue("refresh_token"))
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"access_token":  "new-access-token",
+			"token_type":    "Bearer",
+			"refresh_token": "new-refresh-token",
+			"expires_in":    3600,
+		})
+	}))
+	defer ts.Close()
+
+	// Override the token URL for testing
+	googleOauth.Config.Endpoint.TokenURL = ts.URL
+
+	req, err := http.NewRequest("GET", "/refresh", nil)
+	assert.NoError(t, err)
+
+	rr := httptest.NewRecorder()
+	handler := http.HandlerFunc(googleOauth.RefreshToken)
+
+	handler.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+
+	tokenStore.AssertExpectations(t)
+	assert.NotContains(t, logBuffer.String(), "Refresh failed")
 }
