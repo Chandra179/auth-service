@@ -22,16 +22,16 @@ type OAuthState struct {
 }
 
 type GoogleOauth struct {
-	config      *oauth2.Config
-	logger      *log.Logger
-	limiter     *rate.Limiter
-	redisClient *redis.RedisClient
-	aes         *encryptor.AesEncryptor
-	ser         *serialization.SerializationManager
-	rand        *random.Random
+	config   *oauth2.Config
+	logger   *log.Logger
+	limiter  *rate.Limiter
+	redisOpr redis.RedisOperations
+	aes      *encryptor.AesEncryptor
+	ser      *serialization.SerializationManager
+	rand     *random.Random
 }
 
-func NewGoogleOauth(cfg *configs.Config, redisClient *redis.RedisClient, logger *log.Logger,
+func NewGoogleOauth(cfg *configs.Config, redisOpr redis.RedisOperations, logger *log.Logger,
 	aes *encryptor.AesEncryptor, ser *serialization.SerializationManager, rand *random.Random) *GoogleOauth {
 	oauth2Config := &oauth2.Config{
 		ClientID:     cfg.GoogleOauth.ClientID,
@@ -42,13 +42,13 @@ func NewGoogleOauth(cfg *configs.Config, redisClient *redis.RedisClient, logger 
 	}
 
 	return &GoogleOauth{
-		config:      oauth2Config,
-		redisClient: redisClient,
-		logger:      logger,
-		aes:         aes,
-		limiter:     rate.NewLimiter(rate.Every(time.Second), 10), // 10 requests per second
-		ser:         ser,
-		rand:        rand,
+		config:   oauth2Config,
+		redisOpr: redisOpr,
+		logger:   logger,
+		aes:      aes,
+		limiter:  rate.NewLimiter(rate.Every(time.Second), 10), // 10 requests per second
+		ser:      ser,
+		rand:     rand,
 	}
 }
 
@@ -71,7 +71,7 @@ func (g *GoogleOauth) Login(w http.ResponseWriter, r *http.Request) {
 
 	// temporary store state in redis, state will be used for LoginCallback state validation
 	// assuming will receive the callback within 5 minute after login
-	g.redisClient.Set(state, verifier, 5*time.Minute)
+	g.redisOpr.Set(state, verifier, 5*time.Minute)
 
 	challenge := oauth2.S256ChallengeFromVerifier(verifier)
 	authURL := g.config.AuthCodeURL(
@@ -104,13 +104,13 @@ func (g *GoogleOauth) LoginCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	state := r.URL.Query().Get("state")
-	oauthState, exists := g.redisClient.Get(state)
+	oauthState, exists := g.redisOpr.Get(state)
 	if exists != nil {
 		g.logger.Printf("Invalid state received: %s", state)
 		http.Error(w, "Invalid state", http.StatusBadRequest)
 		return
 	}
-	g.redisClient.Delete(state)
+	g.redisOpr.Delete(state)
 
 	code := r.URL.Query().Get("code")
 	token, err := g.config.Exchange(ctx, code, oauth2.VerifierOption(oauthState))

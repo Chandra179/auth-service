@@ -15,13 +15,13 @@ import (
 	"golang.org/x/oauth2"
 )
 
-// Mock RedisClient
 type MockRedisClient struct {
 	mock.Mock
 }
 
-func (m *MockRedisClient) Set(key string, value string, expiration time.Duration) {
-	m.Called(key, value, expiration)
+func (m *MockRedisClient) Set(key string, value interface{}, expiration time.Duration) error {
+	args := m.Called(key, value, expiration)
+	return args.Error(0)
 }
 
 func (m *MockRedisClient) Get(key string) (string, error) {
@@ -29,8 +29,9 @@ func (m *MockRedisClient) Get(key string) (string, error) {
 	return args.String(0), args.Error(1)
 }
 
-func (m *MockRedisClient) Delete(key string) {
-	m.Called(key)
+func (m *MockRedisClient) Delete(key string) error {
+	args := m.Called(key)
+	return args.Error(0)
 }
 
 // Mock AesEncryptor
