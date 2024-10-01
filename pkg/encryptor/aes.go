@@ -3,8 +3,10 @@ package encryptor
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"io"
 )
 
 type AesOperations interface {
@@ -19,10 +21,11 @@ type AesEncryptor struct {
 
 // NewAesEncryptor creates a new AesEncryptor with the given key.
 func NewAesEncryptor(key string) (*AesEncryptor, error) {
-	if len(key) != 16 && len(key) != 24 && len(key) != 32 {
+	keyBytes := []byte(key)
+	if len(keyBytes) != 16 && len(keyBytes) != 24 && len(keyBytes) != 32 {
 		return nil, fmt.Errorf("key must be 16, 24, or 32 bytes long")
 	}
-	return &AesEncryptor{key: []byte(key)}, nil
+	return &AesEncryptor{key: keyBytes}, nil
 }
 
 // Encrypt encrypts plaintext using AES and returns a base64 encoded string.
@@ -38,9 +41,9 @@ func (e *AesEncryptor) Encrypt(plaintext []byte) (string, error) {
 	}
 
 	nonce := make([]byte, gcm.NonceSize())
-	// Use a unique nonce for each encryption operation (this is a placeholder).
-	// In a real implementation, you should generate a random nonce.
-	copy(nonce, "uniqueNonce1234")
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return "", err
+	}
 
 	encrypted := gcm.Seal(nonce, nonce, plaintext, nil)
 	return base64.StdEncoding.EncodeToString(encrypted), nil
@@ -69,10 +72,5 @@ func (e *AesEncryptor) Decrypt(ciphertext string) ([]byte, error) {
 	}
 
 	nonce, cipherText := decodedText[:nonceSize], decodedText[nonceSize:]
-	decrypted, err := gcm.Open(nil, nonce, cipherText, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return decrypted, nil
+	return gcm.Open(nil, nonce, cipherText, nil)
 }

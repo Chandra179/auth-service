@@ -20,7 +20,7 @@ func StartServer() {
 	// -------------
 	config, err := configs.LoadConfig()
 	if err != nil {
-		fmt.Println("err")
+		fmt.Println("err config", err)
 	}
 	// --------------
 	// Logger
@@ -29,7 +29,7 @@ func StartServer() {
 	// --------------
 	// Redis
 	// --------------
-	rdb := redis.NewRedisClient("localhost:6379", "", 0)
+	rdb := redis.NewRedisClient("redis:6379", "", 0)
 	// --------------
 	// Serialization
 	// --------------
@@ -37,9 +37,9 @@ func StartServer() {
 	// --------------
 	// Enryption
 	// --------------
-	aes, err := encryptor.NewAesEncryptor("replace_this_key_with_symetric_key_encryption")
+	aes, err := encryptor.NewAesEncryptor("0123456789abcdef") //16 bytes key
 	if err != nil {
-		fmt.Println("err")
+		fmt.Println("encryption err", err)
 	}
 	// --------------
 	// Random
