@@ -2,7 +2,6 @@ package internal
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -99,38 +98,28 @@ func (g *GoogleOauth) LoginCallback(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
-	fmt.Println("AAAAAAAAA")
 	if !g.limiter.Allow() {
-		fmt.Println("BBBBBB")
 		http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
 		return
 	}
 
-	fmt.Println("CCCCCCC")
 	state := r.URL.Query().Get("state")
-	fmt.Println("DDDDDD")
 	oauthState, exists := g.redisOpr.Get(state)
 	if exists != nil {
-		fmt.Println("EEEEEEE")
 		g.logger.Printf("Invalid state received: %s", state)
 		http.Error(w, "Invalid state", http.StatusBadRequest)
 		return
 	}
-	fmt.Println("FFFFFFFF")
 	g.redisOpr.Delete(state)
 
-	fmt.Println("GGGGGG")
 	code := r.URL.Query().Get("code")
-	fmt.Println("HHHHH")
 	token, err := g.config.Exchange(ctx, code, oauth2.VerifierOption(oauthState))
 	if err != nil {
-		fmt.Println("IIIIIII")
 		g.logger.Printf("Failed to exchange token: %v", err)
 		http.Error(w, "Failed to exchange token", http.StatusInternalServerError)
 		return
 	}
 
-	fmt.Println("JJJJJJJ")
 	tokenJson := Token{
 		AccessToken:  token.AccessToken,
 		TokenType:    token.TokenType,
@@ -139,19 +128,16 @@ func (g *GoogleOauth) LoginCallback(w http.ResponseWriter, r *http.Request) {
 		ExpiresIn:    token.ExpiresIn,
 	}
 
-	fmt.Println("KKKKKKK")
 	byteCode, err := g.ser.Marshal(tokenJson)
 	if err != nil {
 		http.Error(w, "Failed to serializa token", http.StatusInternalServerError)
 	}
 
-	fmt.Println("LLLLLLL")
 	encryptedCode, err := g.aes.Encrypt(byteCode)
 	if err != nil {
 		http.Error(w, "Failed to encrypt token", http.StatusInternalServerError)
 	}
 
-	fmt.Println("MMMMMM")
 	// Set the HTTP-only and secure cookies for access and refresh tokens
 	http.SetCookie(w, &http.Cookie{
 		Name:     "access_token",
@@ -162,7 +148,6 @@ func (g *GoogleOauth) LoginCallback(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteStrictMode, // Adjust as per your requirements
 	})
 
-	fmt.Println("NNNNNN")
 	g.logger.Printf("Token successfully exchanged and stored")
 	http.Redirect(w, r, "/success", http.StatusSeeOther)
 }

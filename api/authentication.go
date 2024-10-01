@@ -12,5 +12,5 @@ type Authtentication interface {
 
 func SetupRoutes(a Authtentication, RedirectURL string) {
 	http.HandleFunc("/login", a.Login)
-	http.HandleFunc(RedirectURL, a.LoginCallback)
+	http.HandleFunc("/login/callback", a.LoginCallback)
 }
