@@ -26,13 +26,13 @@ type GoogleOauth struct {
 	logger   *log.Logger
 	limiter  *rate.Limiter
 	redisOpr redis.RedisOperations
-	aes      *encryptor.AesEncryptor
-	ser      *serialization.SerializationManager
-	rand     *random.Random
+	aes      encryptor.AesOperations
+	ser      serialization.SerializationOperations
+	rand     random.RandomOperations
 }
 
 func NewGoogleOauth(cfg *configs.Config, redisOpr redis.RedisOperations, logger *log.Logger,
-	aes *encryptor.AesEncryptor, ser *serialization.SerializationManager, rand *random.Random) *GoogleOauth {
+	aes encryptor.AesOperations, ser serialization.SerializationOperations, rand random.RandomOperations) *GoogleOauth {
 	oauth2Config := &oauth2.Config{
 		ClientID:     cfg.GoogleOauth.ClientID,
 		ClientSecret: cfg.GoogleOauth.ClientSecret,
@@ -127,7 +127,7 @@ func (g *GoogleOauth) LoginCallback(w http.ResponseWriter, r *http.Request) {
 		Expiry:       token.Expiry,
 		ExpiresIn:    token.ExpiresIn,
 	}
-	byteCode, err := g.ser.ToBytes(tokenJson)
+	byteCode, err := g.ser.Marshal(tokenJson)
 	if err != nil {
 		http.Error(w, "Failed to serializa token", http.StatusInternalServerError)
 	}
@@ -172,7 +172,7 @@ func (g *GoogleOauth) RefreshToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	token := &oauth2.Token{}
-	err = g.ser.FromBytes(tokenByte, token)
+	err = g.ser.Unmarshal(tokenByte, token)
 	if err != nil {
 		http.Error(w, "Error deserealize token", http.StatusInternalServerError)
 		return
@@ -191,7 +191,7 @@ func (g *GoogleOauth) RefreshToken(w http.ResponseWriter, r *http.Request) {
 		Expiry:       newToken.Expiry,
 		ExpiresIn:    newToken.ExpiresIn,
 	}
-	byteCode, err := g.ser.ToBytes(tokenJson)
+	byteCode, err := g.ser.Marshal(tokenJson)
 	if err != nil {
 		http.Error(w, "Failed to serializa token", http.StatusInternalServerError)
 	}

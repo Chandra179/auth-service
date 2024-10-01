@@ -33,7 +33,7 @@ func StartServer() {
 	// --------------
 	// Serialization
 	// --------------
-	ser := serialization.NewSerializationManager(&serialization.GobSerializer{})
+	ser := serialization.NewGobSerialization()
 	// --------------
 	// Enryption
 	// --------------

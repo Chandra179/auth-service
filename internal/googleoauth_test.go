@@ -10,69 +10,14 @@ import (
 	"time"
 
 	"github.com/Chandra179/auth-service/configs"
+	"github.com/Chandra179/auth-service/tools/mock/pkg/encryptor"
+	"github.com/Chandra179/auth-service/tools/mock/pkg/random"
+	"github.com/Chandra179/auth-service/tools/mock/pkg/redis"
+	"github.com/Chandra179/auth-service/tools/mock/pkg/serialization"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"golang.org/x/oauth2"
 )
-
-type MockRedisClient struct {
-	mock.Mock
-}
-
-func (m *MockRedisClient) Set(key string, value interface{}, expiration time.Duration) error {
-	args := m.Called(key, value, expiration)
-	return args.Error(0)
-}
-
-func (m *MockRedisClient) Get(key string) (string, error) {
-	args := m.Called(key)
-	return args.String(0), args.Error(1)
-}
-
-func (m *MockRedisClient) Delete(key string) error {
-	args := m.Called(key)
-	return args.Error(0)
-}
-
-// Mock AesEncryptor
-type MockAesEncryptor struct {
-	mock.Mock
-}
-
-func (m *MockAesEncryptor) Encrypt(data []byte) (string, error) {
-	args := m.Called(data)
-	return args.String(0), args.Error(1)
-}
-
-func (m *MockAesEncryptor) Decrypt(encryptedData string) ([]byte, error) {
-	args := m.Called(encryptedData)
-	return args.Get(0).([]byte), args.Error(1)
-}
-
-// Mock SerializationManager
-type MockSerializationManager struct {
-	mock.Mock
-}
-
-func (m *MockSerializationManager) ToBytes(v interface{}) ([]byte, error) {
-	args := m.Called(v)
-	return args.Get(0).([]byte), args.Error(1)
-}
-
-func (m *MockSerializationManager) FromBytes(data []byte, v interface{}) error {
-	args := m.Called(data, v)
-	return args.Error(0)
-}
-
-// Mock Random
-type MockRandom struct {
-	mock.Mock
-}
-
-func (m *MockRandom) GenerateRandomString() (string, error) {
-	args := m.Called()
-	return args.String(0), args.Error(1)
-}
 
 func TestNewGoogleOauth(t *testing.T) {
 	cfg := &configs.Config{
@@ -84,11 +29,11 @@ func TestNewGoogleOauth(t *testing.T) {
 			Endpoint:     oauth2.Endpoint{AuthURL: "http://example.com/auth", TokenURL: "http://example.com/token"},
 		},
 	}
-	redisClient := &MockRedisClient{}
+	redisClient := &redis.MockRedisClient{}
 	logger := log.New(bytes.NewBuffer([]byte{}), "", log.LstdFlags)
-	aes := &MockAesEncryptor{}
-	ser := &MockSerializationManager{}
-	rand := &MockRandom{}
+	aes := &encryptor.MockAesEncryptor{}
+	ser := &serialization.MockSerialization{}
+	rand := &random.MockRandom{}
 
 	googleOauth := NewGoogleOauth(cfg, redisClient, logger, aes, ser, rand)
 
@@ -110,18 +55,18 @@ func TestLogin(t *testing.T) {
 			Endpoint:     oauth2.Endpoint{AuthURL: "http://example.com/auth", TokenURL: "http://example.com/token"},
 		},
 	}
-	redisClient := &MockRedisClient{}
+	redisClient := &redis.MockRedisClient{}
 	var logBuffer bytes.Buffer
 	logger := log.New(&logBuffer, "", log.LstdFlags)
-	aes := &MockAesEncryptor{}
-	ser := &MockSerializationManager{}
-	rand := &MockRandom{}
+	aes := &encryptor.MockAesEncryptor{}
+	ser := &serialization.MockSerialization{}
+	rand := &random.MockRandom{}
 
 	googleOauth := NewGoogleOauth(cfg, redisClient, logger, aes, ser, rand)
 
 	rand.On("GenerateRandomString").Return("test-state", nil).Once()
 	rand.On("GenerateRandomString").Return("test-verifier", nil).Once()
-	redisClient.On("Set", "test-state", "test-verifier", 5*time.Minute).Return()
+	redisClient.On("Set", "test-state", "test-verifier", 5*time.Minute).Return(nil)
 
 	req, err := http.NewRequest("GET", "/login", nil)
 	assert.NoError(t, err)
@@ -149,17 +94,17 @@ func TestLoginCallback(t *testing.T) {
 			Endpoint:     oauth2.Endpoint{AuthURL: "http://example.com/auth", TokenURL: "http://example.com/token"},
 		},
 	}
-	redisClient := &MockRedisClient{}
+	redisClient := &redis.MockRedisClient{}
 	var logBuffer bytes.Buffer
 	logger := log.New(&logBuffer, "", log.LstdFlags)
-	aes := &MockAesEncryptor{}
-	ser := &MockSerializationManager{}
-	rand := &MockRandom{}
+	aes := &encryptor.MockAesEncryptor{}
+	ser := &serialization.MockSerialization{}
+	rand := &random.MockRandom{}
 
 	googleOauth := NewGoogleOauth(cfg, redisClient, logger, aes, ser, rand)
 
 	redisClient.On("Get", "test-state").Return("test-verifier", nil)
-	redisClient.On("Delete", "test-state").Return()
+	redisClient.On("Delete", "test-state").Return(nil)
 
 	tokenJson := Token{
 		AccessToken:  "test-access-token",
@@ -169,7 +114,7 @@ func TestLoginCallback(t *testing.T) {
 		ExpiresIn:    3600,
 	}
 
-	ser.On("ToBytes", mock.AnythingOfType("Token")).Return([]byte("serialized-token"), nil)
+	ser.On("Marshal", mock.AnythingOfType("Token")).Return([]byte("serialized-token"), nil)
 	aes.On("Encrypt", []byte("serialized-token")).Return("encrypted-token", nil)
 
 	// Create a test server to mock the token exchange
@@ -213,12 +158,12 @@ func TestRefreshToken(t *testing.T) {
 			Endpoint:     oauth2.Endpoint{AuthURL: "http://example.com/auth", TokenURL: "http://example.com/token"},
 		},
 	}
-	redisClient := &MockRedisClient{}
+	redisClient := &redis.MockRedisClient{}
 	var logBuffer bytes.Buffer
 	logger := log.New(&logBuffer, "", log.LstdFlags)
-	aes := &MockAesEncryptor{}
-	ser := &MockSerializationManager{}
-	rand := &MockRandom{}
+	aes := &encryptor.MockAesEncryptor{}
+	ser := &serialization.MockSerialization{}
+	rand := &random.MockRandom{}
 
 	googleOauth := NewGoogleOauth(cfg, redisClient, logger, aes, ser, rand)
 
@@ -230,7 +175,7 @@ func TestRefreshToken(t *testing.T) {
 	}
 
 	aes.On("Decrypt", "encrypted-old-token").Return([]byte("serialized-old-token"), nil)
-	ser.On("FromBytes", []byte("serialized-old-token"), &oauth2.Token{}).Run(func(args mock.Arguments) {
+	ser.On("Unmarshal", []byte("serialized-old-token"), &oauth2.Token{}).Run(func(args mock.Arguments) {
 		token := args.Get(1).(*oauth2.Token)
 		*token = *oldToken
 	}).Return(nil)
@@ -243,7 +188,7 @@ func TestRefreshToken(t *testing.T) {
 		ExpiresIn:    3600,
 	}
 
-	ser.On("ToBytes", mock.AnythingOfType("Token")).Return([]byte("serialized-new-token"), nil)
+	ser.On("Marshal", mock.AnythingOfType("Token")).Return([]byte("serialized-new-token"), nil)
 	aes.On("Encrypt", []byte("serialized-new-token")).Return("encrypted-new-token", nil)
 
 	// Create a test server to mock the token refresh

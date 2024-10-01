@@ -7,6 +7,11 @@ import (
 	"fmt"
 )
 
+type AesOperations interface {
+	Encrypt(plaintext []byte) (string, error)
+	Decrypt(ciphertext string) ([]byte, error)
+}
+
 // AesEncryptor implements the Encryptor interface using AES.
 type AesEncryptor struct {
 	key []byte
