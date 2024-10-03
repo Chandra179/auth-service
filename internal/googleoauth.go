@@ -71,7 +71,11 @@ func (g *GoogleOauth) Login(w http.ResponseWriter, r *http.Request) {
 
 	// temporary store state in redis, state will be used for LoginCallback state validation
 	// assuming will receive the callback within 5 minute after login
-	g.redisOpr.Set(state, verifier, 5*time.Minute)
+	err = g.redisOpr.Set(state, verifier, 5*time.Minute)
+	if err != nil {
+		http.Error(w, "Failed to save state", http.StatusInternalServerError)
+		return
+	}
 
 	challenge := oauth2.S256ChallengeFromVerifier(verifier)
 	authURL := g.config.AuthCodeURL(
@@ -110,7 +114,11 @@ func (g *GoogleOauth) LoginCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid state", http.StatusBadRequest)
 		return
 	}
-	g.redisOpr.Delete(state)
+	err := g.redisOpr.Delete(state)
+	if err != nil {
+		http.Error(w, "Failed to delete state", http.StatusInternalServerError)
+		return
+	}
 
 	code := r.URL.Query().Get("code")
 	token, err := g.config.Exchange(ctx, code, oauth2.VerifierOption(oauthState))

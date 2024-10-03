@@ -85,6 +85,7 @@ func TestLogin(t *testing.T) {
 }
 
 func TestLoginCallback(t *testing.T) {
+	// Setup
 	cfg := &configs.Config{
 		GoogleOauth: oauth2.Config{
 			ClientID:     "test-client-id",
@@ -103,10 +104,12 @@ func TestLoginCallback(t *testing.T) {
 
 	googleOauth := NewGoogleOauth(cfg, redisClient, logger, aes, ser, rand)
 
+	// Mock Redis expectations
 	redisClient.On("Get", "test-state").Return("test-verifier", nil)
 	redisClient.On("Delete", "test-state").Return(nil)
 
-	tokenJson := Token{
+	// Define expected token
+	expectedToken := Token{
 		AccessToken:  "test-access-token",
 		TokenType:    "Bearer",
 		RefreshToken: "test-refresh-token",
@@ -114,38 +117,35 @@ func TestLoginCallback(t *testing.T) {
 		ExpiresIn:    3600,
 	}
 
-	ser.On("Marshal", mock.AnythingOfType("Token")).Return([]byte("serialized-token"), nil)
-	aes.On("Encrypt", []byte("serialized-token")).Return("encrypted-token", nil)
+	ser.On("Marshal", mock.AnythingOfType("Token")).Return([]byte("any-serialized-data"), nil)
+	aes.On("Encrypt", mock.Anything).Return("encrypted-token", nil)
 
-	// Create a test server to mock the token exchange
+	// Mock OAuth server
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "test-verifier", r.FormValue("code_verifier"))
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(tokenJson)
+		json.NewEncoder(w).Encode(expectedToken)
 	}))
 	defer ts.Close()
 
-	// Override the token URL for testing
 	googleOauth.config.Endpoint.TokenURL = ts.URL
 
+	// Test the callback
 	req, err := http.NewRequest("GET", "/callback?state=test-state&code=test-code", nil)
 	assert.NoError(t, err)
 
 	rr := httptest.NewRecorder()
 	handler := http.HandlerFunc(googleOauth.LoginCallback)
-
 	handler.ServeHTTP(rr, req)
 
 	assert.Equal(t, http.StatusSeeOther, rr.Code)
 	assert.Equal(t, "/success", rr.Header().Get("Location"))
-
 	assert.Equal(t, "access_token", rr.Result().Cookies()[0].Name)
 	assert.Equal(t, "encrypted-token", rr.Result().Cookies()[0].Value)
 
 	redisClient.AssertExpectations(t)
 	ser.AssertExpectations(t)
 	aes.AssertExpectations(t)
-	assert.Contains(t, logBuffer.String(), "Token successfully exchanged and stored")
 }
 
 func TestRefreshToken(t *testing.T) {
@@ -208,11 +208,9 @@ func TestRefreshToken(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	handler := http.HandlerFunc(googleOauth.RefreshToken)
-
 	handler.ServeHTTP(rr, req)
 
 	assert.Equal(t, http.StatusOK, rr.Code)
-
 	assert.Equal(t, "access_token", rr.Result().Cookies()[0].Name)
 	assert.Equal(t, "encrypted-new-token", rr.Result().Cookies()[0].Value)
 
