@@ -10,46 +10,14 @@ import (
 	"time"
 
 	"github.com/Chandra179/auth-service/configs"
+	"github.com/Chandra179/auth-service/tools/mock/pkg/encryptor"
+	"github.com/Chandra179/auth-service/tools/mock/pkg/random"
+	"github.com/Chandra179/auth-service/tools/mock/pkg/redis"
+	"github.com/Chandra179/auth-service/tools/mock/pkg/serialization"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"golang.org/x/oauth2"
 )
-
-// Mock StateStorer
-type MockStateStorer struct {
-	mock.Mock
-}
-
-func (m *MockStateStorer) Set(state, verifier string) {
-	m.Called(state, verifier)
-}
-
-func (m *MockStateStorer) Get(state string) (OAuthState, bool) {
-	args := m.Called(state)
-	return args.Get(0).(OAuthState), args.Bool(1)
-}
-
-func (m *MockStateStorer) Delete(state string) {
-	m.Called(state)
-}
-
-func (m *MockStateStorer) Cleanup(maxAge time.Duration) {
-	m.Called(maxAge)
-}
-
-// Mock TokenStorer
-type MockTokenStorer struct {
-	mock.Mock
-}
-
-func (m *MockTokenStorer) SetToken(token *oauth2.Token) {
-	m.Called(token)
-}
-
-func (m *MockTokenStorer) GetToken() *oauth2.Token {
-	args := m.Called()
-	return args.Get(0).(*oauth2.Token)
-}
 
 func TestNewGoogleOauth(t *testing.T) {
 	cfg := &configs.Config{
@@ -61,18 +29,20 @@ func TestNewGoogleOauth(t *testing.T) {
 			Endpoint:     oauth2.Endpoint{AuthURL: "http://example.com/auth", TokenURL: "http://example.com/token"},
 		},
 	}
-	stateStore := &MockStateStorer{}
-	tokenStore := &MockTokenStorer{}
+	redisClient := &redis.MockRedisClient{}
 	logger := log.New(bytes.NewBuffer([]byte{}), "", log.LstdFlags)
+	aes := &encryptor.MockAesEncryptor{}
+	ser := &serialization.MockSerialization{}
+	rand := &random.MockRandom{}
 
-	googleOauth := NewGoogleOauth(cfg, stateStore, tokenStore, logger)
+	googleOauth := NewGoogleOauth(cfg, redisClient, logger, aes, ser, rand)
 
 	assert.NotNil(t, googleOauth)
-	assert.Equal(t, cfg.GoogleOauth.ClientID, googleOauth.Config.ClientID)
-	assert.Equal(t, cfg.GoogleOauth.ClientSecret, googleOauth.Config.ClientSecret)
-	assert.Equal(t, cfg.GoogleOauth.RedirectURL, googleOauth.Config.RedirectURL)
-	assert.Equal(t, cfg.GoogleOauth.Scopes, googleOauth.Config.Scopes)
-	assert.Equal(t, cfg.GoogleOauth.Endpoint, googleOauth.Config.Endpoint)
+	assert.Equal(t, cfg.GoogleOauth.ClientID, googleOauth.config.ClientID)
+	assert.Equal(t, cfg.GoogleOauth.ClientSecret, googleOauth.config.ClientSecret)
+	assert.Equal(t, cfg.GoogleOauth.RedirectURL, googleOauth.config.RedirectURL)
+	assert.Equal(t, cfg.GoogleOauth.Scopes, googleOauth.config.Scopes)
+	assert.Equal(t, cfg.GoogleOauth.Endpoint, googleOauth.config.Endpoint)
 }
 
 func TestLogin(t *testing.T) {
@@ -85,15 +55,18 @@ func TestLogin(t *testing.T) {
 			Endpoint:     oauth2.Endpoint{AuthURL: "http://example.com/auth", TokenURL: "http://example.com/token"},
 		},
 	}
-	stateStore := &MockStateStorer{}
-	tokenStore := &MockTokenStorer{}
-
+	redisClient := &redis.MockRedisClient{}
 	var logBuffer bytes.Buffer
 	logger := log.New(&logBuffer, "", log.LstdFlags)
+	aes := &encryptor.MockAesEncryptor{}
+	ser := &serialization.MockSerialization{}
+	rand := &random.MockRandom{}
 
-	googleOauth := NewGoogleOauth(cfg, stateStore, tokenStore, logger)
+	googleOauth := NewGoogleOauth(cfg, redisClient, logger, aes, ser, rand)
 
-	stateStore.On("Set", mock.Anything, mock.Anything).Return()
+	rand.On("GenerateRandomString").Return("test-state", nil).Once()
+	rand.On("GenerateRandomString").Return("test-verifier", nil).Once()
+	redisClient.On("Set", "test-state", "test-verifier", 5*time.Minute).Return(nil)
 
 	req, err := http.NewRequest("GET", "/login", nil)
 	assert.NoError(t, err)
@@ -106,11 +79,13 @@ func TestLogin(t *testing.T) {
 	assert.Equal(t, http.StatusTemporaryRedirect, rr.Code)
 	assert.Contains(t, rr.Header().Get("Location"), "http://example.com/auth")
 
-	stateStore.AssertExpectations(t)
+	rand.AssertExpectations(t)
+	redisClient.AssertExpectations(t)
 	assert.Contains(t, logBuffer.String(), "Generated auth URL:")
 }
 
 func TestLoginCallback(t *testing.T) {
+	// Setup
 	cfg := &configs.Config{
 		GoogleOauth: oauth2.Config{
 			ClientID:     "test-client-id",
@@ -120,55 +95,61 @@ func TestLoginCallback(t *testing.T) {
 			Endpoint:     oauth2.Endpoint{AuthURL: "http://example.com/auth", TokenURL: "http://example.com/token"},
 		},
 	}
-	stateStore := &MockStateStorer{}
-	tokenStore := &MockTokenStorer{}
-
+	redisClient := &redis.MockRedisClient{}
 	var logBuffer bytes.Buffer
 	logger := log.New(&logBuffer, "", log.LstdFlags)
+	aes := &encryptor.MockAesEncryptor{}
+	ser := &serialization.MockSerialization{}
+	rand := &random.MockRandom{}
 
-	googleOauth := NewGoogleOauth(cfg, stateStore, tokenStore, logger)
+	googleOauth := NewGoogleOauth(cfg, redisClient, logger, aes, ser, rand)
 
-	// Mock the state store
-	stateStore.On("Get", "test-state").Return(OAuthState{
-		State:    "test-state",
-		Verifier: "test-verifier",
-		Created:  time.Now(),
-	}, true)
-	stateStore.On("Delete", "test-state").Return()
+	// Mock Redis expectations
+	redisClient.On("Get", "test-state").Return("test-verifier", nil)
+	redisClient.On("Delete", "test-state").Return(nil)
 
-	// Mock the token store
-	tokenStore.On("SetToken", mock.AnythingOfType("*oauth2.Token")).Return()
+	// Define expected token
+	expectedToken := Token{
+		AccessToken:  "test-access-token",
+		TokenType:    "Bearer",
+		RefreshToken: "test-refresh-token",
+		Expiry:       time.Now().Add(time.Hour),
+		ExpiresIn:    3600,
+	}
 
-	// Create a test server to mock the token exchange
+	ser.On("Marshal", mock.AnythingOfType("Token")).Return([]byte("any-serialized-data"), nil)
+	aes.On("Encrypt", mock.Anything).Return("encrypted-token", nil)
+
+	// Mock OAuth server
+
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "test-verifier", r.FormValue("code_verifier"))
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"access_token":  "test-access-token",
-			"token_type":    "Bearer",
-			"refresh_token": "test-refresh-token",
-			"expires_in":    3600,
-		})
+		err := json.NewEncoder(w).Encode(expectedToken)
+		if err != nil {
+			return
+		}
 	}))
 	defer ts.Close()
 
-	// Override the token URL for testing
-	googleOauth.Config.Endpoint.TokenURL = ts.URL
+	googleOauth.config.Endpoint.TokenURL = ts.URL
 
+	// Test the callback
 	req, err := http.NewRequest("GET", "/callback?state=test-state&code=test-code", nil)
 	assert.NoError(t, err)
 
 	rr := httptest.NewRecorder()
 	handler := http.HandlerFunc(googleOauth.LoginCallback)
-
 	handler.ServeHTTP(rr, req)
 
 	assert.Equal(t, http.StatusSeeOther, rr.Code)
-	assert.Contains(t, rr.Header().Get("Location"), "/success?access_token=test-access-token")
+	assert.Equal(t, "/success", rr.Header().Get("Location"))
+	assert.Equal(t, "access_token", rr.Result().Cookies()[0].Name)
+	assert.Equal(t, "encrypted-token", rr.Result().Cookies()[0].Value)
 
-	stateStore.AssertExpectations(t)
-	tokenStore.AssertExpectations(t)
-	assert.Contains(t, logBuffer.String(), "Token successfully exchanged and stored")
+	redisClient.AssertExpectations(t)
+	ser.AssertExpectations(t)
+	aes.AssertExpectations(t)
 }
 
 func TestRefreshToken(t *testing.T) {
@@ -181,50 +162,65 @@ func TestRefreshToken(t *testing.T) {
 			Endpoint:     oauth2.Endpoint{AuthURL: "http://example.com/auth", TokenURL: "http://example.com/token"},
 		},
 	}
-	stateStore := &MockStateStorer{}
-	tokenStore := &MockTokenStorer{}
-
+	redisClient := &redis.MockRedisClient{}
 	var logBuffer bytes.Buffer
 	logger := log.New(&logBuffer, "", log.LstdFlags)
+	aes := &encryptor.MockAesEncryptor{}
+	ser := &serialization.MockSerialization{}
+	rand := &random.MockRandom{}
 
-	googleOauth := NewGoogleOauth(cfg, stateStore, tokenStore, logger)
+	googleOauth := NewGoogleOauth(cfg, redisClient, logger, aes, ser, rand)
 
-	// Mock the token store
 	oldToken := &oauth2.Token{
 		AccessToken:  "old-access-token",
 		TokenType:    "Bearer",
 		RefreshToken: "old-refresh-token",
 		Expiry:       time.Now().Add(-time.Hour), // Expired token
 	}
-	tokenStore.On("GetToken").Return(oldToken)
-	tokenStore.On("SetToken", mock.AnythingOfType("*oauth2.Token")).Return()
+
+	aes.On("Decrypt", "encrypted-old-token").Return([]byte("serialized-old-token"), nil)
+	ser.On("Unmarshal", []byte("serialized-old-token"), &oauth2.Token{}).Run(func(args mock.Arguments) {
+		token := args.Get(1).(*oauth2.Token)
+		*token = *oldToken
+	}).Return(nil)
+
+	newTokenJson := Token{
+		AccessToken:  "new-access-token",
+		TokenType:    "Bearer",
+		RefreshToken: "new-refresh-token",
+		Expiry:       time.Now().Add(time.Hour),
+		ExpiresIn:    3600,
+	}
+
+	ser.On("Marshal", mock.AnythingOfType("Token")).Return([]byte("serialized-new-token"), nil)
+	aes.On("Encrypt", []byte("serialized-new-token")).Return("encrypted-new-token", nil)
 
 	// Create a test server to mock the token refresh
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "old-refresh-token", r.FormValue("refresh_token"))
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"access_token":  "new-access-token",
-			"token_type":    "Bearer",
-			"refresh_token": "new-refresh-token",
-			"expires_in":    3600,
-		})
+		err := json.NewEncoder(w).Encode(newTokenJson)
+		if err != nil {
+			return
+		}
 	}))
 	defer ts.Close()
 
 	// Override the token URL for testing
-	googleOauth.Config.Endpoint.TokenURL = ts.URL
+	googleOauth.config.Endpoint.TokenURL = ts.URL
 
 	req, err := http.NewRequest("GET", "/refresh", nil)
 	assert.NoError(t, err)
+	req.AddCookie(&http.Cookie{Name: "access_token", Value: "encrypted-old-token"})
 
 	rr := httptest.NewRecorder()
 	handler := http.HandlerFunc(googleOauth.RefreshToken)
-
 	handler.ServeHTTP(rr, req)
 
 	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Equal(t, "access_token", rr.Result().Cookies()[0].Name)
+	assert.Equal(t, "encrypted-new-token", rr.Result().Cookies()[0].Value)
 
-	tokenStore.AssertExpectations(t)
-	assert.NotContains(t, logBuffer.String(), "Refresh failed")
+	aes.AssertExpectations(t)
+	ser.AssertExpectations(t)
 }
