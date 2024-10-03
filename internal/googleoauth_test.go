@@ -121,10 +121,14 @@ func TestLoginCallback(t *testing.T) {
 	aes.On("Encrypt", mock.Anything).Return("encrypted-token", nil)
 
 	// Mock OAuth server
+
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "test-verifier", r.FormValue("code_verifier"))
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(expectedToken)
+		err := json.NewEncoder(w).Encode(expectedToken)
+		if err != nil {
+			return
+		}
 	}))
 	defer ts.Close()
 
@@ -195,7 +199,10 @@ func TestRefreshToken(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "old-refresh-token", r.FormValue("refresh_token"))
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(newTokenJson)
+		err := json.NewEncoder(w).Encode(newTokenJson)
+		if err != nil {
+			return
+		}
 	}))
 	defer ts.Close()
 
