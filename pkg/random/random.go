@@ -7,19 +7,17 @@ import (
 )
 
 type RandomOperations interface {
-	GenerateRandomString() (string, error)
+	GenerateRandomString(byteLen int64) (string, error)
 }
 
-type Random struct {
-	byteLen int64
+type Random struct{}
+
+func NewRandom() *Random {
+	return &Random{}
 }
 
-func NewRandom(byteLen int64) *Random {
-	return &Random{byteLen: byteLen}
-}
-
-func (r *Random) GenerateRandomString() (string, error) {
-	b := make([]byte, r.byteLen)
+func (r *Random) GenerateRandomString(byteLen int64) (string, error) {
+	b := make([]byte, byteLen)
 	_, err := rand.Read(b)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate random string: %w", err)

@@ -44,7 +44,7 @@ func StartServer() {
 	// --------------
 	// Random
 	// --------------
-	rand := random.NewRandom(32)
+	rand := random.NewRandom()
 	// --------------
 	// Oauth
 	// --------------

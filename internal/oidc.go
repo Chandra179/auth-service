@@ -58,12 +58,12 @@ func NewOIDCConfig(ctx context.Context, cfg *oauth2.Config, issuer string, rand 
 }
 
 func (o *OIDCConfig) Login(w http.ResponseWriter, r *http.Request) {
-	state, err := o.rand.GenerateRandomString()
+	state, err := o.rand.GenerateRandomString(32)
 	if err != nil {
 		http.Error(w, "Failed to generate state", http.StatusInternalServerError)
 		return
 	}
-	verifier, err := o.rand.GenerateRandomString()
+	verifier, err := o.rand.GenerateRandomString(32)
 	if err != nil {
 		http.Error(w, "Failed to generate verifier", http.StatusInternalServerError)
 		return
