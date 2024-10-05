@@ -4,8 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"time"
 
+	"github.com/Chandra179/auth-service/pkg/encryptor"
 	"github.com/Chandra179/auth-service/pkg/random"
+	"github.com/Chandra179/auth-service/pkg/redis"
+	"github.com/Chandra179/auth-service/pkg/serialization"
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
 )
@@ -16,6 +20,9 @@ type OIDCConfig struct {
 	Oauth2Cfg *oauth2.Config
 	Issuer    string
 	rand      random.RandomOperations
+	aes       encryptor.AesOperations
+	ser       serialization.SerializationOperations
+	redisOpr  redis.RedisOperations
 }
 
 type UserClaims struct {
@@ -24,7 +31,13 @@ type UserClaims struct {
 	Name          string `json:"name"`
 }
 
-func NewOIDCConfig(ctx context.Context, cfg *oauth2.Config, issuer string, rand random.RandomOperations) (*OIDCConfig, error) {
+type State struct {
+	State    string
+	Verifier string
+}
+
+func NewOIDCConfig(ctx context.Context, cfg *oauth2.Config, issuer string, rand random.RandomOperations,
+	aes encryptor.AesOperations, ser serialization.SerializationOperations, redisOpr redis.RedisOperations) (*OIDCConfig, error) {
 	provider, err := oidc.NewProvider(ctx, issuer)
 	if err != nil {
 		return nil, err
@@ -37,6 +50,9 @@ func NewOIDCConfig(ctx context.Context, cfg *oauth2.Config, issuer string, rand 
 		}),
 		Oauth2Cfg: cfg,
 		rand:      rand,
+		aes:       aes,
+		ser:       ser,
+		redisOpr:  redisOpr,
 	}
 
 	return config, nil
@@ -54,17 +70,13 @@ func (o *OIDCConfig) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Store state in a secure cookie
-	cookie := &http.Cookie{
-		Name:   "auth_state",
-		Value:  verifier,
-		MaxAge: 30,
-		// Secure:   true,
-		Path:     "/",
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
+	// temporary store state in redis, state will be used for LoginCallback state validation
+	// assuming will receive the callback within 5 minute after login
+	err = o.redisOpr.Set(state, verifier, 5*time.Minute)
+	if err != nil {
+		http.Error(w, "Failed to save state", http.StatusInternalServerError)
+		return
 	}
-	http.SetCookie(w, cookie)
 
 	// Redirect to the identity provider
 	challenge := oauth2.S256ChallengeFromVerifier(verifier)
@@ -80,22 +92,15 @@ func (o *OIDCConfig) Login(w http.ResponseWriter, r *http.Request) {
 
 func (o *OIDCConfig) LoginCallback(w http.ResponseWriter, r *http.Request) {
 	// Verify state
-	stateCookie, err := r.Cookie("auth_state")
-	if err != nil {
-		http.Error(w, "State cookie not found", http.StatusBadRequest)
-		return
-	}
-	if r.URL.Query().Get("state") != stateCookie.Value {
-		http.Error(w, "State mismatch", http.StatusBadRequest)
+	state := r.URL.Query().Get("state")
+	verifier, exists := o.redisOpr.Get(state)
+	if exists != nil {
+		http.Error(w, "Invalid state", http.StatusBadRequest)
 		return
 	}
 
 	// Exchange code for token
-	oauth2Token, err := o.Oauth2Cfg.Exchange(
-		r.Context(),
-		r.URL.Query().Get("code"),
-		oauth2.VerifierOption(stateCookie.Value),
-	)
+	oauth2Token, err := o.Oauth2Cfg.Exchange(r.Context(), r.URL.Query().Get("code"), oauth2.VerifierOption(verifier))
 	if err != nil {
 		http.Error(w, "Failed to exchange token"+err.Error(), http.StatusInternalServerError)
 		return
@@ -125,6 +130,11 @@ func (o *OIDCConfig) LoginCallback(w http.ResponseWriter, r *http.Request) {
 	// Return user info as JSON (in practice, you'd typically create a session here)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(claims)
+	http.Redirect(w, r, "/success", http.StatusSeeOther)
+}
+
+func (o *OIDCConfig) RefreshToken(w http.ResponseWriter, r *http.Request) {
+
 }
 
 // func (s *Server) handleUserInfo(w http.ResponseWriter, r *http.Request) {
@@ -153,7 +163,3 @@ func (o *OIDCConfig) LoginCallback(w http.ResponseWriter, r *http.Request) {
 // 	w.Header().Set("Content-Type", "application/json")
 // 	json.NewEncoder(w).Encode(claims)
 // }
-
-func (o *OIDCConfig) RefreshToken(w http.ResponseWriter, r *http.Request) {
-
-}

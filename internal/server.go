@@ -8,7 +8,10 @@ import (
 
 	"github.com/Chandra179/auth-service/api"
 	"github.com/Chandra179/auth-service/configs"
+	"github.com/Chandra179/auth-service/pkg/encryptor"
 	"github.com/Chandra179/auth-service/pkg/random"
+	"github.com/Chandra179/auth-service/pkg/redis"
+	"github.com/Chandra179/auth-service/pkg/serialization"
 )
 
 func StartServer() {
@@ -23,17 +26,21 @@ func StartServer() {
 	// Logger
 	// --------------
 	// logger := log.New(os.Stdout, "INFO: ", log.Ldate|log.Ltime|log.Lshortfile)
-	// // --------------
-	// // Serialization
-	// // --------------
-	// ser := serialization.NewGobSerialization()
-	// // --------------
-	// // Enryption
-	// // --------------
-	// aes, err := encryptor.NewAesEncryptor("0123456789abcdef") //16 bytes key
-	// if err != nil {
-	// 	fmt.Println("encryption err", err)
-	// }
+	// --------------
+	// Redis
+	// --------------
+	rdb := redis.NewRedisClient("redis:6379", "", 0)
+	// --------------
+	// Serialization
+	// --------------
+	ser := serialization.NewGobSerialization()
+	// --------------
+	// Enryption
+	// --------------
+	aes, err := encryptor.NewAesEncryptor("0123456789abcdef") //16 bytes key
+	if err != nil {
+		fmt.Println("encryption err", err)
+	}
 	// --------------
 	// Random
 	// --------------
@@ -41,7 +48,7 @@ func StartServer() {
 	// --------------
 	// Oauth
 	// --------------
-	oidc, err := NewOIDCConfig(context.Background(), &config.Oauth2Cfg, config.Issuer, rand)
+	oidc, err := NewOIDCConfig(context.Background(), &config.Oauth2Cfg, config.Issuer, rand, aes, ser, rdb)
 	if err != nil {
 		fmt.Println("oidc initializatin failed", err)
 	}
