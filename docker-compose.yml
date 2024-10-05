@@ -10,7 +10,6 @@ services:
       - "8080:8080"
     depends_on:
       - redis
-    restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s
