@@ -2,7 +2,6 @@ package internal
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"time"
 
@@ -61,17 +60,17 @@ func NewOIDCConfig(ctx context.Context, cfg *oauth2.Config, issuer string, rand 
 func (o *OIDCConfig) Login(w http.ResponseWriter, r *http.Request) {
 	state, err := o.rand.GenerateRandomString()
 	if err != nil {
-		http.Error(w, "Failed to generate rand string", http.StatusInternalServerError)
+		http.Error(w, "Failed to generate state", http.StatusInternalServerError)
 		return
 	}
 	verifier, err := o.rand.GenerateRandomString()
 	if err != nil {
-		http.Error(w, "Failed to generate rand string", http.StatusInternalServerError)
+		http.Error(w, "Failed to generate verifier", http.StatusInternalServerError)
 		return
 	}
 
-	// temporary store state in redis, state will be used for LoginCallback state validation
-	// assuming will receive the callback within 5 minute after login
+	// temporary store state: verifier in redis, state will be used for LoginCallback state validation
+	// assuming we will receive the callback within 5 minute after login
 	err = o.redisOpr.Set(state, verifier, 5*time.Minute)
 	if err != nil {
 		http.Error(w, "Failed to save state", http.StatusInternalServerError)
@@ -127,14 +126,82 @@ func (o *OIDCConfig) LoginCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Return user info as JSON (in practice, you'd typically create a session here)
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(claims)
+	// Serialize token
+	byteCode, err := o.ser.Marshal(oauth2Token)
+	if err != nil {
+		http.Error(w, "Failed to serializa token", http.StatusInternalServerError)
+	}
+
+	// Encrypt token
+	encryptedCode, err := o.aes.Encrypt(byteCode)
+	if err != nil {
+		http.Error(w, "Failed to encrypt token", http.StatusInternalServerError)
+	}
+
+	// Set the HTTP-only and secure cookies for access and refresh tokens
+	http.SetCookie(w, &http.Cookie{
+		Name:     "access_token",
+		Value:    encryptedCode, // consist of (access_token, refresh, expired, etc..)
+		Path:     "/",
+		HttpOnly: true,
+		// Secure:   true,                    // Ensure this is set to true when using HTTPS
+		SameSite: http.SameSiteLaxMode, // Adjust as per your requirements
+	})
+
 	http.Redirect(w, r, "/success", http.StatusSeeOther)
 }
 
 func (o *OIDCConfig) RefreshToken(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
 
+	cookie, err := r.Cookie("access_token")
+	if err != nil {
+		if err == http.ErrNoCookie {
+			http.Error(w, "Cookie not found", http.StatusUnauthorized)
+			return
+		}
+		http.Error(w, "Error retrieving cookie", http.StatusInternalServerError)
+		return
+	}
+
+	tokenByte, err := o.aes.Decrypt(cookie.Value)
+	if err != nil {
+		http.Error(w, "Error decrypting token", http.StatusInternalServerError)
+		return
+	}
+
+	token := &oauth2.Token{}
+	err = o.ser.Unmarshal(tokenByte, token)
+	if err != nil {
+		http.Error(w, "Error deserealize token", http.StatusInternalServerError)
+		return
+	}
+
+	newToken, err := o.Oauth2Cfg.TokenSource(ctx, token).Token()
+	if err != nil {
+		http.Error(w, "Refresh token failed", http.StatusInternalServerError)
+		return
+	}
+
+	byteCode, err := o.ser.Marshal(newToken)
+	if err != nil {
+		http.Error(w, "Failed to serializa token", http.StatusInternalServerError)
+	}
+
+	encryptedCode, err := o.aes.Encrypt(byteCode)
+	if err != nil {
+		http.Error(w, "Failed to encrypt token", http.StatusInternalServerError)
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "access_token",
+		Value:    encryptedCode, // consist of (access_token, refresh, expired, etc..)
+		Path:     "/",
+		HttpOnly: true,
+		// Secure:   true,                    // Ensure this is set to true when using HTTPS
+		SameSite: http.SameSiteLaxMode, // Adjust as per your requirements
+	})
 }
 
 // func (s *Server) handleUserInfo(w http.ResponseWriter, r *http.Request) {
