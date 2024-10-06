@@ -9,6 +9,6 @@ type MockRandom struct {
 }
 
 func (m *MockRandom) GenerateRandomString(byteLen int64) (string, error) {
-	args := m.Called()
+	args := m.Called(byteLen)
 	return args.String(0), args.Error(1)
 }

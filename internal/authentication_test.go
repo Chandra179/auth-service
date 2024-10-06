@@ -1,205 +1,158 @@
 package internal
 
 import (
-	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/Chandra179/auth-service/tools/mock/pkg/encryptor"
+	oauth2mock "github.com/Chandra179/auth-service/tools/mock/pkg/oauth2"
+	oidcmock "github.com/Chandra179/auth-service/tools/mock/pkg/oidc"
+
 	"github.com/Chandra179/auth-service/tools/mock/pkg/random"
 	"github.com/Chandra179/auth-service/tools/mock/pkg/redis"
 	"github.com/Chandra179/auth-service/tools/mock/pkg/serialization"
+	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"golang.org/x/oauth2"
 )
 
-func TestNewOIDC(t *testing.T) {
-	cfg := &oauth2.Config{
-		ClientID:     "test-client-id",
-		ClientSecret: "test-client-secret",
-		RedirectURL:  "http://localhost:8080/callback",
-		Scopes:       []string{"email", "profile"},
-		Endpoint:     oauth2.Endpoint{AuthURL: "http://example.com/auth", TokenURL: "http://example.com/token"},
+func TestLogin(t *testing.T) {
+	// Setup
+	mockRand := &random.MockRandom{}
+	mockRedis := &redis.MockRedisClient{}
+	mockOauth2Proxy := &oauth2mock.MockOauth2Proxy{}
+
+	config := &AuthConfig{
+		rand:        mockRand,
+		redisOpr:    mockRedis,
+		oauth2Proxy: mockOauth2Proxy,
+		oauth2Cfg:   &oauth2.Config{},
 	}
-	redisClient := &redis.MockRedisClient{}
-	aes := &encryptor.MockAesEncryptor{}
-	ser := &serialization.MockSerialization{}
-	rand := &random.MockRandom{}
-	ctx := context.Background()
 
-	oidcConfig, _ := NewAuthentication(ctx, cfg, rand, aes, ser, redisClient, nil, nil)
+	// Test case 1: Successful login
+	t.Run("successful login", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodGet, "/login", nil)
 
-	assert.NotNil(t, oidcConfig)
-	// assert.Equal(t, cfg.ClientID, oidcConfig.Oauth2.ClientID)
-	// assert.Equal(t, cfg.ClientSecret, oidcConfig.Oauth2.ClientSecret)
-	// assert.Equal(t, cfg.RedirectURL, oidcConfig.Oauth2.RedirectURL)
-	// assert.Equal(t, cfg.Scopes, oidcConfig.Oauth2.Scopes)
-	// assert.Equal(t, cfg.Endpoint, oidcConfig.Oauth2.Endpoint)
+		mockRand.On("GenerateRandomString", int64(32)).Return("abcd", nil).Times(2)
+		mockRedis.On("Set", "abcd", "abcd", 5*time.Minute).Return(nil).Once()
+		mockOauth2Proxy.On("S256ChallengeFromVerifier", "abcd").Return("challenge123").Once()
+		mockOauth2Proxy.On("AuthCodeURL", "abcd", mock.Anything).Return("https://example.com/auth").Once()
+
+		config.Login(w, r)
+
+		assert.Equal(t, http.StatusTemporaryRedirect, w.Code)
+		assert.Contains(t, w.Header().Get("Location"), "https://example.com/auth")
+
+		mockRand.AssertExpectations(t)
+		mockRedis.AssertExpectations(t)
+		mockOauth2Proxy.AssertExpectations(t)
+	})
 }
 
-// func TestLogin(t *testing.T) {
-// 	cfg := &oauth2.Config{
-// 		ClientID:     "test-client-id",
-// 		ClientSecret: "test-client-secret",
-// 		RedirectURL:  "http://localhost:8080/callback",
-// 		Scopes:       []string{"email", "profile"},
-// 		Endpoint:     oauth2.Endpoint{AuthURL: "http://example.com/auth", TokenURL: "http://example.com/token"},
-// 	}
-// 	redisClient := &redis.MockRedisClient{}
-// 	aes := &encryptor.MockAesEncryptor{}
-// 	ser := &serialization.MockSerialization{}
-// 	rand := &random.MockRandom{}
-// 	ctx := context.Background()
+func TestLoginCallback(t *testing.T) {
+	// Setup
+	mockRand := &random.MockRandom{}
+	mockRedis := &redis.MockRedisClient{}
+	mockOauth2Proxy := &oauth2mock.MockOauth2Proxy{}
+	mockOIDCProxy := &oidcmock.MockOIDCProxy{}
+	mockSer := &serialization.MockSerialization{}
+	mockAes := &encryptor.MockAesEncryptor{}
 
-// 	oidcConfig, _ := NewAuthentication(ctx, cfg, "issuer", rand, aes, ser, redisClient)
+	config := &AuthConfig{
+		redisOpr:    mockRedis,
+		oauth2Proxy: mockOauth2Proxy,
+		oidcProxy:   mockOIDCProxy,
+		ser:         mockSer,
+		aes:         mockAes,
+		rand:        mockRand,
+		oauth2Cfg:   &oauth2.Config{ClientID: "test-client"},
+	}
 
-// 	rand.On("GenerateRandomString").Return("test-state", nil).Once()
-// 	rand.On("GenerateRandomString").Return("test-verifier", nil).Once()
-// 	redisClient.On("Set", "test-state", "test-verifier", 5*time.Minute).Return(nil)
+	t.Run("successful callback", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodGet, "/callback?state=state123&code=code123", nil)
 
-// 	req, err := http.NewRequest("GET", "/login", nil)
-// 	assert.NoError(t, err)
+		token := &oauth2.Token{AccessToken: "access123"}
+		verifier := "verifier123"
+		rawIDToken := "raw-id-token"
+		verifierObj := &oidc.IDTokenVerifier{}
+		verifiedToken := &oidc.IDToken{}
 
-// 	rr := httptest.NewRecorder()
-// 	handler := http.HandlerFunc(oidcConfig.Login)
+		mockRedis.On("Get", "state123").Return(verifier, nil).Once()
+		mockOauth2Proxy.On("Exchange", r.Context(), "code123", mock.Anything).Return(token, nil).Once()
+		mockOauth2Proxy.On("Extra", "id_token", token).Return(rawIDToken).Once()
+		mockOIDCProxy.On("Verifier", "test-client").Return(verifierObj).Once()
+		mockOIDCProxy.On("Verify", r.Context(), verifierObj, rawIDToken).Return(verifiedToken, nil).Once()
+		mockOIDCProxy.On("Claims", verifiedToken, mock.AnythingOfType("*internal.UserClaims")).Return(nil).Once()
 
-// 	handler.ServeHTTP(rr, req)
+		tokenBytes := []byte("serialized-token")
+		mockSer.On("Marshal", token).Return(tokenBytes, nil).Once()
+		mockAes.On("Encrypt", tokenBytes).Return("encrypted-token", nil).Once()
 
-// 	assert.Equal(t, http.StatusTemporaryRedirect, rr.Code)
-// 	assert.Contains(t, rr.Header().Get("Location"), "http://example.com/auth")
+		config.LoginCallback(w, r)
 
-// 	rand.AssertExpectations(t)
-// 	redisClient.AssertExpectations(t)
-// }
+		assert.Equal(t, http.StatusSeeOther, w.Code)
+		assert.Equal(t, "/success", w.Header().Get("Location"))
 
-// func TestLoginCallback(t *testing.T) {
-// 	cfg := &oauth2.Config{
-// 		ClientID:     "test-client-id",
-// 		ClientSecret: "test-client-secret",
-// 		RedirectURL:  "http://localhost:8080/callback",
-// 		Scopes:       []string{"email", "profile"},
-// 		Endpoint:     oauth2.Endpoint{AuthURL: "http://example.com/auth", TokenURL: "http://example.com/token"},
-// 	}
-// 	redisClient := &redis.MockRedisClient{}
-// 	aes := &encryptor.MockAesEncryptor{}
-// 	ser := &serialization.MockSerialization{}
-// 	rand := &random.MockRandom{}
-// 	ctx := context.Background()
+		cookie := w.Result().Cookies()[0]
+		assert.Equal(t, "access_token", cookie.Name)
+		assert.Equal(t, "encrypted-token", cookie.Value)
 
-// 	oidcConfig, _ := NewAuthentication(ctx, cfg, "issuer", rand, aes, ser, redisClient)
+		mockRedis.AssertExpectations(t)
+		mockOauth2Proxy.AssertExpectations(t)
+		mockOIDCProxy.AssertExpectations(t)
+		mockSer.AssertExpectations(t)
+		mockAes.AssertExpectations(t)
+	})
+}
 
-// 	// Mock Redis expectations
-// 	redisClient.On("Get", "test-state").Return("test-verifier", nil)
-// 	redisClient.On("Delete", "test-state").Return(nil)
+func TestRefreshToken(t *testing.T) {
+	// Setup
+	mockOauth2Proxy := &oauth2mock.MockOauth2Proxy{}
+	mockSer := &serialization.MockSerialization{}
+	mockAes := &encryptor.MockAesEncryptor{}
 
-// 	// Define expected token
-// 	expectedToken := oauth2.Token{
-// 		AccessToken:  "test-access-token",
-// 		TokenType:    "Bearer",
-// 		RefreshToken: "test-refresh-token",
-// 		Expiry:       time.Now().Add(time.Hour),
-// 		ExpiresIn:    3600,
-// 	}
+	config := &AuthConfig{
+		aes:         mockAes,
+		ser:         mockSer,
+		oauth2Proxy: mockOauth2Proxy,
+	}
 
-// 	ser.On("Marshal", mock.AnythingOfType("Token")).Return([]byte("any-serialized-data"), nil)
-// 	aes.On("Encrypt", mock.Anything).Return("encrypted-token", nil)
+	t.Run("successful token refresh", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodGet, "/refresh", nil)
+		r.AddCookie(&http.Cookie{Name: "access_token", Value: "encrypted-token"})
 
-// 	// Mock OAuth server
-// 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-// 		assert.Equal(t, "test-verifier", r.FormValue("code_verifier"))
-// 		w.Header().Set("Content-Type", "application/json")
-// 		err := json.NewEncoder(w).Encode(expectedToken)
-// 		if err != nil {
-// 			return
-// 		}
-// 	}))
-// 	defer ts.Close()
+		decryptedToken := []byte("decrypted-token")
+		oldToken := &oauth2.Token{AccessToken: "old-token"}
+		newToken := &oauth2.Token{AccessToken: "new-token"}
+		tokenSource := oauth2.StaticTokenSource(newToken)
 
-// 	oidcConfig.Oauth2.Endpoint.TokenURL = ts.URL
+		mockAes.On("Decrypt", "encrypted-token").Return(decryptedToken, nil).Once()
+		mockSer.On("Unmarshal", decryptedToken, mock.AnythingOfType("*oauth2.Token")).Run(func(args mock.Arguments) {
+			token := args.Get(1).(*oauth2.Token)
+			*token = *oldToken
+		}).Return(nil).Once()
+		mockOauth2Proxy.On("TokenSource", mock.Anything, oldToken).Return(tokenSource).Once()
 
-// 	// Test the callback
-// 	req, err := http.NewRequest("GET", "/callback?state=test-state&code=test-code", nil)
-// 	assert.NoError(t, err)
+		newTokenBytes := []byte("serialized-new-token")
+		mockSer.On("Marshal", mock.AnythingOfType("*oauth2.Token")).Return(newTokenBytes, nil).Once()
+		mockAes.On("Encrypt", newTokenBytes).Return("encrypted-new-token", nil).Once()
 
-// 	rr := httptest.NewRecorder()
-// 	handler := http.HandlerFunc(oidcConfig.LoginCallback)
-// 	handler.ServeHTTP(rr, req)
+		config.RefreshToken(w, r)
 
-// 	assert.Equal(t, http.StatusSeeOther, rr.Code)
-// 	assert.Equal(t, "/success", rr.Header().Get("Location"))
-// 	assert.Equal(t, "access_token", rr.Result().Cookies()[0].Name)
-// 	assert.Equal(t, "encrypted-token", rr.Result().Cookies()[0].Value)
+		assert.Equal(t, http.StatusOK, w.Code)
 
-// 	redisClient.AssertExpectations(t)
-// 	ser.AssertExpectations(t)
-// 	aes.AssertExpectations(t)
-// }
+		cookie := w.Result().Cookies()[0]
+		assert.Equal(t, "access_token", cookie.Name)
+		assert.Equal(t, "encrypted-new-token", cookie.Value)
 
-// func TestRefreshToken(t *testing.T) {
-// 	cfg := &oauth2.Config{
-// 		ClientID:     "test-client-id",
-// 		ClientSecret: "test-client-secret",
-// 		RedirectURL:  "http://localhost:8080/callback",
-// 		Scopes:       []string{"email", "profile"},
-// 		Endpoint:     oauth2.Endpoint{AuthURL: "http://example.com/auth", TokenURL: "http://example.com/token"},
-// 	}
-// 	redisClient := &redis.MockRedisClient{}
-// 	aes := &encryptor.MockAesEncryptor{}
-// 	ser := &serialization.MockSerialization{}
-// 	rand := &random.MockRandom{}
-// 	ctx := context.Background()
-
-// 	oidcConfig, _ := NewAuthentication(ctx, cfg, "issuer", rand, aes, ser, redisClient)
-
-// 	oldToken := &oauth2.Token{
-// 		AccessToken:  "old-access-token",
-// 		TokenType:    "Bearer",
-// 		RefreshToken: "old-refresh-token",
-// 		Expiry:       time.Now().Add(-time.Hour), // Expired token
-// 	}
-
-// 	aes.On("Decrypt", "encrypted-old-token").Return([]byte("serialized-old-token"), nil)
-// 	ser.On("Unmarshal", []byte("serialized-old-token"), &oauth2.Token{}).Run(func(args mock.Arguments) {
-// 		token := args.Get(1).(*oauth2.Token)
-// 		*token = *oldToken
-// 	}).Return(nil)
-
-// 	newTokenJson := &oauth2.Token{
-// 		AccessToken:  "new-access-token",
-// 		TokenType:    "Bearer",
-// 		RefreshToken: "new-refresh-token",
-// 		Expiry:       time.Now().Add(time.Hour),
-// 		ExpiresIn:    3600,
-// 	}
-
-// 	ser.On("Marshal", mock.AnythingOfType("Token")).Return([]byte("serialized-new-token"), nil)
-// 	aes.On("Encrypt", []byte("serialized-new-token")).Return("encrypted-new-token", nil)
-
-// 	// Create a test server to mock the token refresh
-// 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-// 		assert.Equal(t, "old-refresh-token", r.FormValue("refresh_token"))
-// 		w.Header().Set("Content-Type", "application/json")
-// 		err := json.NewEncoder(w).Encode(newTokenJson)
-// 		if err != nil {
-// 			return
-// 		}
-// 	}))
-// 	defer ts.Close()
-
-// 	// Override the token URL for testing
-// 	oidcConfig.Oauth2.Endpoint.TokenURL = ts.URL
-
-// 	req, err := http.NewRequest("GET", "/refresh", nil)
-// 	assert.NoError(t, err)
-// 	req.AddCookie(&http.Cookie{Name: "access_token", Value: "encrypted-old-token"})
-
-// 	rr := httptest.NewRecorder()
-// 	handler := http.HandlerFunc(oidcConfig.RefreshToken)
-// 	handler.ServeHTTP(rr, req)
-
-// 	assert.Equal(t, http.StatusOK, rr.Code)
-// 	assert.Equal(t, "access_token", rr.Result().Cookies()[0].Name)
-// 	assert.Equal(t, "encrypted-new-token", rr.Result().Cookies()[0].Value)
-
-// 	aes.AssertExpectations(t)
-// 	ser.AssertExpectations(t)
-// }
+		mockAes.AssertExpectations(t)
+		mockSer.AssertExpectations(t)
+		mockOauth2Proxy.AssertExpectations(t)
+	})
+}
