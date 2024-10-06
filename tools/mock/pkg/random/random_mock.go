@@ -8,7 +8,7 @@ type MockRandom struct {
 	mock.Mock
 }
 
-func (m *MockRandom) GenerateRandomString() (string, error) {
-	args := m.Called()
+func (m *MockRandom) GenerateRandomString(byteLen int64) (string, error) {
+	args := m.Called(byteLen)
 	return args.String(0), args.Error(1)
 }
