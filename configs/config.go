@@ -11,8 +11,8 @@ import (
 )
 
 type Config struct {
-	Oauth2Cfg oauth2.Config
-	Issuer    string
+	Oauth2Cfg    oauth2.Config
+	Oauth2Issuer string
 }
 
 func LoadConfig() (*Config, error) {
@@ -29,6 +29,6 @@ func LoadConfig() (*Config, error) {
 			Scopes:       []string{oidc.ScopeOpenID, "profile", "email"},
 			Endpoint:     google.Endpoint,
 		},
-		Issuer: os.Getenv("OIDC_ISSUER"),
+		Oauth2Issuer: os.Getenv("OIDC_ISSUER"),
 	}, nil
 }

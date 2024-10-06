@@ -2,26 +2,26 @@ package internal
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/Chandra179/auth-service/pkg/encryptor"
+	oauth2pxy "github.com/Chandra179/auth-service/pkg/oauth2"
+	"github.com/Chandra179/auth-service/pkg/oidc"
 	"github.com/Chandra179/auth-service/pkg/random"
 	"github.com/Chandra179/auth-service/pkg/redis"
 	"github.com/Chandra179/auth-service/pkg/serialization"
-	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
 )
 
 type AuthConfig struct {
-	Verifier *oidc.IDTokenVerifier
-	Oauth2   *oauth2.Config
-	Issuer   string
-	rand     random.RandomOperations
-	aes      encryptor.AesOperations
-	ser      serialization.SerializationOperations
-	redisOpr redis.RedisOperations
+	oidcProxy   oidc.OIDCProxy
+	oauth2Proxy oauth2pxy.Oauth2Proxy
+	oauth2Cfg   *oauth2.Config
+	rand        random.RandomOperations
+	aes         encryptor.AesOperations
+	ser         serialization.SerializationOperations
+	redisOpr    redis.RedisOperations
 }
 
 type UserClaims struct {
@@ -30,27 +30,17 @@ type UserClaims struct {
 	Name          string `json:"name"`
 }
 
-type State struct {
-	State    string
-	Verifier string
-}
-
-func NewAuthentication(ctx context.Context, cfg *oauth2.Config, issuer string, rand random.RandomOperations,
-	aes encryptor.AesOperations, ser serialization.SerializationOperations, redisOpr redis.RedisOperations) (*AuthConfig, error) {
-	provider, err := oidc.NewProvider(ctx, issuer)
-	if err != nil {
-		fmt.Print("err")
-	}
-	verifier := provider.Verifier(&oidc.Config{
-		ClientID: cfg.ClientID,
-	})
+func NewAuthentication(ctx context.Context, oauth2Cfg *oauth2.Config, rand random.RandomOperations,
+	aes encryptor.AesOperations, ser serialization.SerializationOperations, redisOpr redis.RedisOperations,
+	oidcProxy oidc.OIDCProxy, oauth2Proxy oauth2pxy.Oauth2Proxy) (*AuthConfig, error) {
 	config := &AuthConfig{
-		Verifier: verifier,
-		Oauth2:   cfg,
-		rand:     rand,
-		aes:      aes,
-		ser:      ser,
-		redisOpr: redisOpr,
+		oauth2Cfg:   oauth2Cfg,
+		rand:        rand,
+		aes:         aes,
+		ser:         ser,
+		redisOpr:    redisOpr,
+		oauth2Proxy: oauth2Proxy,
+		oidcProxy:   oidcProxy,
 	}
 
 	return config, nil
@@ -76,9 +66,8 @@ func (o *AuthConfig) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Redirect to the identity provider
-	challenge := oauth2.S256ChallengeFromVerifier(verifier)
-	authURL := o.Oauth2.AuthCodeURL(
+	challenge := o.oauth2Proxy.S256ChallengeFromVerifier(verifier)
+	authURL := o.oauth2Proxy.AuthCodeURL(
 		state,
 		oauth2.AccessTypeOffline,
 		oauth2.SetAuthURLParam("include_granted_scopes", "true"),
@@ -96,22 +85,24 @@ func (o *AuthConfig) LoginCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid state", http.StatusBadRequest)
 		return
 	}
+
 	// Exchange code for token
-	oauth2Token, err := o.Oauth2.Exchange(r.Context(), r.URL.Query().Get("code"), oauth2.VerifierOption(verifier))
+	oauth2Token, err := o.oauth2Proxy.Exchange(r.Context(), r.URL.Query().Get("code"), oauth2.VerifierOption(verifier))
 	if err != nil {
 		http.Error(w, "Failed to exchange token"+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	// Extract the ID Token
-	rawIDToken, ok := oauth2Token.Extra("id_token").(string)
+	rawIDToken, ok := o.oauth2Proxy.Extra("id_token", oauth2Token).(string)
 	if !ok {
 		http.Error(w, "No ID token found", http.StatusInternalServerError)
 		return
 	}
 
 	// Verify the ID Token
-	idToken, err := o.Verifier.Verify(r.Context(), rawIDToken)
+	verifiedToken := o.oidcProxy.Verifier(o.oauth2Cfg.ClientID)
+	idToken, err := o.oidcProxy.Verify(r.Context(), verifiedToken, rawIDToken)
 	if err != nil {
 		http.Error(w, "Failed to verify ID token", http.StatusInternalServerError)
 		return
@@ -119,7 +110,7 @@ func (o *AuthConfig) LoginCallback(w http.ResponseWriter, r *http.Request) {
 
 	// Extract custom claims
 	var claims UserClaims
-	if err := idToken.Claims(&claims); err != nil {
+	if err := o.oidcProxy.Claims(idToken, &claims); err != nil {
 		http.Error(w, "Failed to extract claims", http.StatusInternalServerError)
 		return
 	}
@@ -176,7 +167,7 @@ func (o *AuthConfig) RefreshToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	newToken, err := o.Oauth2.TokenSource(ctx, token).Token()
+	newToken, err := o.oauth2Proxy.TokenSource(ctx, token).Token()
 	if err != nil {
 		http.Error(w, "Refresh token failed", http.StatusInternalServerError)
 		return
