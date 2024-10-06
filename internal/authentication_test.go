@@ -31,14 +31,14 @@ func TestNewOIDC(t *testing.T) {
 	rand := &random.MockRandom{}
 	ctx := context.Background()
 
-	oidcConfig, _ := NewOIDCConfig(ctx, cfg, "issuer", rand, aes, ser, redisClient)
+	oidcConfig, _ := NewAuthentication(ctx, cfg, "issuer", rand, aes, ser, redisClient)
 
 	assert.NotNil(t, oidcConfig)
-	assert.Equal(t, cfg.ClientID, oidcConfig.Oauth2Cfg.ClientID)
-	assert.Equal(t, cfg.ClientSecret, oidcConfig.Oauth2Cfg.ClientSecret)
-	assert.Equal(t, cfg.RedirectURL, oidcConfig.Oauth2Cfg.RedirectURL)
-	assert.Equal(t, cfg.Scopes, oidcConfig.Oauth2Cfg.Scopes)
-	assert.Equal(t, cfg.Endpoint, oidcConfig.Oauth2Cfg.Endpoint)
+	assert.Equal(t, cfg.ClientID, oidcConfig.Oauth2.ClientID)
+	assert.Equal(t, cfg.ClientSecret, oidcConfig.Oauth2.ClientSecret)
+	assert.Equal(t, cfg.RedirectURL, oidcConfig.Oauth2.RedirectURL)
+	assert.Equal(t, cfg.Scopes, oidcConfig.Oauth2.Scopes)
+	assert.Equal(t, cfg.Endpoint, oidcConfig.Oauth2.Endpoint)
 }
 
 func TestLogin(t *testing.T) {
@@ -55,7 +55,7 @@ func TestLogin(t *testing.T) {
 	rand := &random.MockRandom{}
 	ctx := context.Background()
 
-	oidcConfig, _ := NewOIDCConfig(ctx, cfg, "issuer", rand, aes, ser, redisClient)
+	oidcConfig, _ := NewAuthentication(ctx, cfg, "issuer", rand, aes, ser, redisClient)
 
 	rand.On("GenerateRandomString").Return("test-state", nil).Once()
 	rand.On("GenerateRandomString").Return("test-verifier", nil).Once()
@@ -90,7 +90,7 @@ func TestLoginCallback(t *testing.T) {
 	rand := &random.MockRandom{}
 	ctx := context.Background()
 
-	oidcConfig, _ := NewOIDCConfig(ctx, cfg, "issuer", rand, aes, ser, redisClient)
+	oidcConfig, _ := NewAuthentication(ctx, cfg, "issuer", rand, aes, ser, redisClient)
 
 	// Mock Redis expectations
 	redisClient.On("Get", "test-state").Return("test-verifier", nil)
@@ -119,7 +119,7 @@ func TestLoginCallback(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	oidcConfig.Oauth2Cfg.Endpoint.TokenURL = ts.URL
+	oidcConfig.Oauth2.Endpoint.TokenURL = ts.URL
 
 	// Test the callback
 	req, err := http.NewRequest("GET", "/callback?state=test-state&code=test-code", nil)
@@ -153,7 +153,7 @@ func TestRefreshToken(t *testing.T) {
 	rand := &random.MockRandom{}
 	ctx := context.Background()
 
-	oidcConfig, _ := NewOIDCConfig(ctx, cfg, "issuer", rand, aes, ser, redisClient)
+	oidcConfig, _ := NewAuthentication(ctx, cfg, "issuer", rand, aes, ser, redisClient)
 
 	oldToken := &oauth2.Token{
 		AccessToken:  "old-access-token",
@@ -191,7 +191,7 @@ func TestRefreshToken(t *testing.T) {
 	defer ts.Close()
 
 	// Override the token URL for testing
-	oidcConfig.Oauth2Cfg.Endpoint.TokenURL = ts.URL
+	oidcConfig.Oauth2.Endpoint.TokenURL = ts.URL
 
 	req, err := http.NewRequest("GET", "/refresh", nil)
 	assert.NoError(t, err)

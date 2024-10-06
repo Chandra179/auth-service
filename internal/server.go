@@ -48,7 +48,7 @@ func StartServer() {
 	// --------------
 	// Oauth
 	// --------------
-	oidc, err := NewOIDCConfig(context.Background(), &config.Oauth2Cfg, config.Issuer, rand, aes, ser, rdb)
+	oidc, err := NewAuthentication(context.Background(), &config.Oauth2Cfg, config.Issuer, rand, aes, ser, rdb)
 	if err != nil {
 		fmt.Println("oidc initializatin failed", err)
 	}
