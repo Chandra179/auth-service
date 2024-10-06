@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -14,7 +15,6 @@ import (
 )
 
 type OIDCConfig struct {
-	Provider  *oidc.Provider
 	Verifier  *oidc.IDTokenVerifier
 	Oauth2Cfg *oauth2.Config
 	Issuer    string
@@ -39,14 +39,13 @@ func NewOIDCConfig(ctx context.Context, cfg *oauth2.Config, issuer string, rand 
 	aes encryptor.AesOperations, ser serialization.SerializationOperations, redisOpr redis.RedisOperations) (*OIDCConfig, error) {
 	provider, err := oidc.NewProvider(ctx, issuer)
 	if err != nil {
-		return nil, err
+		fmt.Print("err")
 	}
-
+	verifier := provider.Verifier(&oidc.Config{
+		ClientID: cfg.ClientID,
+	})
 	config := &OIDCConfig{
-		Provider: provider,
-		Verifier: provider.Verifier(&oidc.Config{
-			ClientID: cfg.ClientID,
-		}),
+		Verifier:  verifier,
 		Oauth2Cfg: cfg,
 		rand:      rand,
 		aes:       aes,
@@ -97,7 +96,6 @@ func (o *OIDCConfig) LoginCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid state", http.StatusBadRequest)
 		return
 	}
-
 	// Exchange code for token
 	oauth2Token, err := o.Oauth2Cfg.Exchange(r.Context(), r.URL.Query().Get("code"), oauth2.VerifierOption(verifier))
 	if err != nil {
