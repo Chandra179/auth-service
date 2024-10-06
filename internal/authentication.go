@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/Chandra179/auth-service/pkg/encryptor"
-	oauth2pxy "github.com/Chandra179/auth-service/pkg/oauth2"
+	oauth2proxy "github.com/Chandra179/auth-service/pkg/oauth2"
 	"github.com/Chandra179/auth-service/pkg/oidc"
 	"github.com/Chandra179/auth-service/pkg/random"
 	"github.com/Chandra179/auth-service/pkg/redis"
@@ -15,13 +15,13 @@ import (
 )
 
 type AuthConfig struct {
-	oidcProxy   oidc.OIDCProxy
-	oauth2Proxy oauth2pxy.Oauth2Proxy
-	oauth2Cfg   *oauth2.Config
-	rand        random.RandomOperations
-	aes         encryptor.AesOperations
-	ser         serialization.SerializationOperations
-	redisOpr    redis.RedisOperations
+	oidcProxy     oidc.OIDCProxy
+	oauth2Proxy   oauth2proxy.Oauth2Proxy
+	oauth2Cfg     *oauth2.Config
+	random        random.RandomOperations
+	aes           encryptor.AesOperations
+	serialization serialization.SerializationOperations
+	redisOpr      redis.RedisOperations
 }
 
 type UserClaims struct {
@@ -32,27 +32,27 @@ type UserClaims struct {
 
 func NewAuthentication(ctx context.Context, oauth2Cfg *oauth2.Config, rand random.RandomOperations,
 	aes encryptor.AesOperations, ser serialization.SerializationOperations, redisOpr redis.RedisOperations,
-	oidcProxy oidc.OIDCProxy, oauth2Proxy oauth2pxy.Oauth2Proxy) (*AuthConfig, error) {
+	oidcProxy oidc.OIDCProxy, oauth2Proxy oauth2proxy.Oauth2Proxy) (*AuthConfig, error) {
 	config := &AuthConfig{
-		oauth2Cfg:   oauth2Cfg,
-		rand:        rand,
-		aes:         aes,
-		ser:         ser,
-		redisOpr:    redisOpr,
-		oauth2Proxy: oauth2Proxy,
-		oidcProxy:   oidcProxy,
+		oauth2Cfg:     oauth2Cfg,
+		random:        rand,
+		aes:           aes,
+		serialization: ser,
+		redisOpr:      redisOpr,
+		oauth2Proxy:   oauth2Proxy,
+		oidcProxy:     oidcProxy,
 	}
 
 	return config, nil
 }
 
 func (o *AuthConfig) Login(w http.ResponseWriter, r *http.Request) {
-	state, err := o.rand.GenerateRandomString(32)
+	state, err := o.random.GenerateRandomString(32)
 	if err != nil {
 		http.Error(w, "Failed to generate state", http.StatusInternalServerError)
 		return
 	}
-	verifier, err := o.rand.GenerateRandomString(32)
+	verifier, err := o.random.GenerateRandomString(32)
 	if err != nil {
 		http.Error(w, "Failed to generate verifier", http.StatusInternalServerError)
 		return
@@ -89,7 +89,7 @@ func (o *AuthConfig) LoginCallback(w http.ResponseWriter, r *http.Request) {
 	// Exchange code for token
 	oauth2Token, err := o.oauth2Proxy.Exchange(r.Context(), r.URL.Query().Get("code"), oauth2.VerifierOption(verifier))
 	if err != nil {
-		http.Error(w, "Failed to exchange token"+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Failed to exchange token", http.StatusInternalServerError)
 		return
 	}
 
@@ -116,7 +116,7 @@ func (o *AuthConfig) LoginCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Serialize token
-	byteCode, err := o.ser.Marshal(oauth2Token)
+	byteCode, err := o.serialization.Marshal(oauth2Token)
 	if err != nil {
 		http.Error(w, "Failed to serializa token", http.StatusInternalServerError)
 	}
@@ -161,7 +161,7 @@ func (o *AuthConfig) RefreshToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	token := &oauth2.Token{}
-	err = o.ser.Unmarshal(tokenByte, token)
+	err = o.serialization.Unmarshal(tokenByte, token)
 	if err != nil {
 		http.Error(w, "Error deserealize token", http.StatusInternalServerError)
 		return
@@ -173,7 +173,7 @@ func (o *AuthConfig) RefreshToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	byteCode, err := o.ser.Marshal(newToken)
+	byteCode, err := o.serialization.Marshal(newToken)
 	if err != nil {
 		http.Error(w, "Failed to serializa token", http.StatusInternalServerError)
 	}

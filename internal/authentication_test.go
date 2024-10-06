@@ -26,7 +26,7 @@ func TestLogin_WhenAllSystemsOperational_ShouldRedirectToAuthProvider(t *testing
 	mockOauth2Proxy := &oauth2mock.MockOauth2Proxy{}
 
 	config := &AuthConfig{
-		rand:        mockRand,
+		random:      mockRand,
 		redisOpr:    mockRedis,
 		oauth2Proxy: mockOauth2Proxy,
 		oauth2Cfg:   &oauth2.Config{},
@@ -60,13 +60,13 @@ func TestLoginCallback_WhenValidStateAndCode_ShouldSetAccessTokenCookie(t *testi
 	mockAes := &encryptor.MockAesEncryptor{}
 
 	config := &AuthConfig{
-		redisOpr:    mockRedis,
-		oauth2Proxy: mockOauth2Proxy,
-		oidcProxy:   mockOIDCProxy,
-		ser:         mockSer,
-		aes:         mockAes,
-		rand:        mockRand,
-		oauth2Cfg:   &oauth2.Config{ClientID: "test-client"},
+		redisOpr:      mockRedis,
+		oauth2Proxy:   mockOauth2Proxy,
+		oidcProxy:     mockOIDCProxy,
+		serialization: mockSer,
+		aes:           mockAes,
+		random:        mockRand,
+		oauth2Cfg:     &oauth2.Config{ClientID: "test-client"},
 	}
 
 	w := httptest.NewRecorder()
@@ -112,9 +112,9 @@ func TestRefreshToken_WhenValidAccessToken_ShouldRefreshAndUpdateCookie(t *testi
 	mockAes := &encryptor.MockAesEncryptor{}
 
 	config := &AuthConfig{
-		aes:         mockAes,
-		ser:         mockSer,
-		oauth2Proxy: mockOauth2Proxy,
+		aes:           mockAes,
+		serialization: mockSer,
+		oauth2Proxy:   mockOauth2Proxy,
 	}
 
 	w := httptest.NewRecorder()
