@@ -16,7 +16,7 @@ type OIDC struct {
 	provider *oidc.Provider
 }
 
-func NewOIDC(ctx context.Context, issuer string) (*OIDC, error) {
+func NewOIDCProxy(ctx context.Context, issuer string) (*OIDC, error) {
 	provider, err := oidc.NewProvider(ctx, issuer)
 	if err != nil {
 		return nil, err

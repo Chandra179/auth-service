@@ -29,7 +29,6 @@ func TestLogin_WhenAllSystemsOperational_ShouldRedirectToAuthProvider(t *testing
 		random:      mockRand,
 		redisOpr:    mockRedis,
 		oauth2Proxy: mockOauth2Proxy,
-		oauth2Cfg:   &oauth2.Config{},
 	}
 
 	w := httptest.NewRecorder()
@@ -66,7 +65,6 @@ func TestLoginCallback_WhenValidStateAndCode_ShouldSetAccessTokenCookie(t *testi
 		serialization: mockSer,
 		aes:           mockAes,
 		random:        mockRand,
-		oauth2Cfg:     &oauth2.Config{ClientID: "test-client"},
 	}
 
 	w := httptest.NewRecorder()

@@ -11,7 +11,7 @@ type Authtentication interface {
 }
 
 func SetupRoutes(a Authtentication) {
-	http.HandleFunc("/login", a.Login)
-	http.HandleFunc("/login/callback", a.LoginCallback)
+	http.HandleFunc("/login/", a.Login)
+	http.HandleFunc("/login/callback/", a.LoginCallback)
 	http.HandleFunc("/refresh", a.RefreshToken)
 }
