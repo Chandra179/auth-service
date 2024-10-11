@@ -60,7 +60,7 @@ func (o *AuthConfig) Login(w http.ResponseWriter, r *http.Request) {
 
 	oauth2Cfg, err := o.cfg.GetProvider(provider, o.cfg)
 	if err != nil {
-		http.Error(w, "Provider not found", http.StatusNotFound)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	o.oauth2Proxy = oauth2proxy.NewOauth2(&oauth2Cfg.Oauth2Cfg)
@@ -78,10 +78,11 @@ func (o *AuthConfig) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// temporary store state: {verifier, provider} in redis, state will be used for LoginCallback state validation
+	// provider name will be used for oauth & oidc config
 	// assuming we will receive the callback within 5 minute after login
 	byteState, err := o.serialization.Marshal(&Oauth2State{Verifier: verifier, Provider: provider})
 	if err != nil {
-		http.Error(w, "Failed to serialize state"+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Failed to serialize state", http.StatusInternalServerError)
 	}
 	err = o.redisOpr.Set(state, byteState, 5*time.Minute)
 	if err != nil {
@@ -108,6 +109,8 @@ func (o *AuthConfig) LoginCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid state", http.StatusBadRequest)
 		return
 	}
+
+	// Decode state value
 	curState := &Oauth2State{}
 	err := o.serialization.Unmarshal(state, curState)
 	if err != nil {
@@ -115,9 +118,9 @@ func (o *AuthConfig) LoginCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Initialize config
 	oauth2Cfg, _ := o.cfg.GetProvider(curState.Provider, o.cfg)
 	o.oauth2Proxy = oauth2proxy.NewOauth2(&oauth2Cfg.Oauth2Cfg)
-
 	oidc, err := oidc.NewOIDCProxy(r.Context(), oauth2Cfg.Oauth2Issuer)
 	if err != nil {
 		fmt.Println("oidc initialize err", err)
@@ -168,11 +171,11 @@ func (o *AuthConfig) LoginCallback(w http.ResponseWriter, r *http.Request) {
 	// Set the HTTP-only and secure cookies for access and refresh tokens
 	http.SetCookie(w, &http.Cookie{
 		Name:     "session_token",
-		Value:    encryptedCode, // consist of (session_token, refresh, expired, etc..)
+		Value:    encryptedCode,
 		Path:     "/",
 		HttpOnly: true,
-		// Secure:   true,                    // Ensure this is set to true when using HTTPS
-		SameSite: http.SameSiteLaxMode, // Adjust as per your requirements
+		// Secure:   true,
+		SameSite: http.SameSiteLaxMode,
 	})
 
 	http.Redirect(w, r, "/success", http.StatusSeeOther)
@@ -222,38 +225,11 @@ func (o *AuthConfig) RefreshToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.SetCookie(w, &http.Cookie{
-		Name:     "access_token",
-		Value:    encryptedCode, // consist of (access_token, refresh, expired, etc..)
+		Name:     "session_token",
+		Value:    encryptedCode,
 		Path:     "/",
 		HttpOnly: true,
-		// Secure:   true,                    // Ensure this is set to true when using HTTPS
-		SameSite: http.SameSiteLaxMode, // Adjust as per your requirements
+		// Secure:   true,
+		SameSite: http.SameSiteLaxMode,
 	})
 }
-
-// func (s *Server) handleUserInfo(w http.ResponseWriter, r *http.Request) {
-// 	// Get the access token from the Authorization header
-// 	authHeader := r.Header.Get("Authorization")
-// 	if authHeader == "" {
-// 		http.Error(w, "No authorization header", http.StatusUnauthorized)
-// 		return
-// 	}
-
-// 	// Use the provider's UserInfo endpoint
-// 	userInfo, err := s.oidcConfig.Provider.UserInfo(r.Context(), oauth2.StaticTokenSource(
-// 		&oauth2.Token{AccessToken: authHeader[7:]}, // Remove "Bearer " prefix
-// 	))
-// 	if err != nil {
-// 		http.Error(w, "Failed to get userinfo", http.StatusInternalServerError)
-// 		return
-// 	}
-
-// 	var claims UserClaims
-// 	if err := userInfo.Claims(&claims); err != nil {
-// 		http.Error(w, "Failed to extract userinfo claims", http.StatusInternalServerError)
-// 		return
-// 	}
-
-// 	w.Header().Set("Content-Type", "application/json")
-// 	json.NewEncoder(w).Encode(claims)
-// }

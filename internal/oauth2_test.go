@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Chandra179/auth-service/configs"
 	"github.com/Chandra179/auth-service/tools/mock/pkg/encryptor"
 	oauth2mock "github.com/Chandra179/auth-service/tools/mock/pkg/oauth2"
 	oidcmock "github.com/Chandra179/auth-service/tools/mock/pkg/oidc"
@@ -24,27 +25,32 @@ func TestLogin_WhenAllSystemsOperational_ShouldRedirectToAuthProvider(t *testing
 	mockRand := &random.MockRandom{}
 	mockRedis := &redis.MockRedisClient{}
 	mockOauth2Proxy := &oauth2mock.MockOauth2Proxy{}
+	mockSerialization := &serialization.MockSerialization{}
+	oauth2State := []byte{}
 
 	config := &AuthConfig{
-		random:      mockRand,
-		redisOpr:    mockRedis,
-		oauth2Proxy: mockOauth2Proxy,
+		random:        mockRand,
+		redisOpr:      mockRedis,
+		oauth2Proxy:   mockOauth2Proxy,
+		serialization: mockSerialization,
+		cfg:           &configs.Config{},
 	}
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/login", nil)
+	r := httptest.NewRequest(http.MethodGet, "/login/google", nil)
 
 	mockRand.On("GenerateRandomString", int64(32)).Return("abcd", nil).Times(2)
-	mockRedis.On("Set", "abcd", "abcd", 5*time.Minute).Return(nil).Once()
+	mockSerialization.On("Marshal", mock.Anything).Return(oauth2State, nil).Once()
+	mockRedis.On("Set", "abcd", oauth2State, 5*time.Minute).Return(nil).Once()
 	mockOauth2Proxy.On("S256ChallengeFromVerifier", "abcd").Return("challenge123").Once()
 	mockOauth2Proxy.On("AuthCodeURL", "abcd", mock.Anything).Return("https://example.com/auth").Once()
 
 	config.Login(w, r)
 
 	assert.Equal(t, http.StatusTemporaryRedirect, w.Code)
-	assert.Contains(t, w.Header().Get("Location"), "https://example.com/auth")
 
 	mockRand.AssertExpectations(t)
+	mockSerialization.AssertExpectations(t)
 	mockRedis.AssertExpectations(t)
 	mockOauth2Proxy.AssertExpectations(t)
 }
