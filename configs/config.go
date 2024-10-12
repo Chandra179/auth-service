@@ -11,24 +11,24 @@ import (
 )
 
 type Oauth2Provider struct {
-	Oauth2Cfg    oauth2.Config
+	Oauth2Config oauth2.Config
 	Oauth2Issuer string
 }
 
-type Config struct {
+type AppConfig struct {
 	GoogleOauth2Cfg    Oauth2Provider
 	MicrosoftOauth2Cfg Oauth2Provider
 }
 
-func LoadConfig() (*Config, error) {
+func LoadConfig() (*AppConfig, error) {
 	err := godotenv.Load()
 	if err != nil {
 		return nil, fmt.Errorf("error loading .env file")
 	}
 
-	return &Config{
+	return &AppConfig{
 		GoogleOauth2Cfg: Oauth2Provider{
-			Oauth2Cfg: oauth2.Config{
+			Oauth2Config: oauth2.Config{
 				ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
 				ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
 				RedirectURL:  os.Getenv("GOOGLE_REDIRECT_URL"),
@@ -38,7 +38,7 @@ func LoadConfig() (*Config, error) {
 			Oauth2Issuer: os.Getenv("GOOGLE_OIDC_ISSUER"),
 		},
 		MicrosoftOauth2Cfg: Oauth2Provider{
-			Oauth2Cfg: oauth2.Config{
+			Oauth2Config: oauth2.Config{
 				ClientID:     os.Getenv("MICROSOFT_CLIENT_ID"),
 				ClientSecret: os.Getenv("MICROSOFT_CLIENT_SECRET"),
 				RedirectURL:  os.Getenv("MICROSOFT_REDIRECT_URL"),
@@ -51,7 +51,7 @@ func LoadConfig() (*Config, error) {
 }
 
 // GetProvider returns a provider configuration by name
-func (c *Config) GetProvider(name string, cfg *Config) (*Oauth2Provider, error) {
+func (c *AppConfig) GetProviderConfig(name string, cfg *AppConfig) (*Oauth2Provider, error) {
 	if name == "google" {
 		return &cfg.GoogleOauth2Cfg, nil
 	}

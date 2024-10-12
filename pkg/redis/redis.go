@@ -9,7 +9,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-type RedisOperations interface {
+type RedisStore interface {
 	Set(key string, value interface{}, expiration time.Duration) error
 	Get(key string) ([]byte, error)
 	Delete(key string) error

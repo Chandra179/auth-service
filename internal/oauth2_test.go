@@ -28,12 +28,12 @@ func TestLogin_WhenAllSystemsOperational_ShouldRedirectToAuthProvider(t *testing
 	mockSerialization := &serialization.MockSerialization{}
 	oauth2State := []byte{}
 
-	config := &AuthConfig{
+	config := &Oauth2Service{
 		random:        mockRand,
 		redisOpr:      mockRedis,
 		oauth2Proxy:   mockOauth2Proxy,
 		serialization: mockSerialization,
-		cfg:           &configs.Config{},
+		cfg:           &configs.AppConfig{},
 	}
 
 	w := httptest.NewRecorder()

@@ -1,4 +1,4 @@
-package encryptor
+package encryption
 
 import (
 	"github.com/stretchr/testify/mock"

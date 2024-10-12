@@ -2,96 +2,93 @@ package internal
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/Chandra179/auth-service/configs"
-	"github.com/Chandra179/auth-service/pkg/encryptor"
-	oauth2proxy "github.com/Chandra179/auth-service/pkg/oauth2"
-	"github.com/Chandra179/auth-service/pkg/oidc"
+	"github.com/Chandra179/auth-service/pkg/encryption"
+	oauth2Client "github.com/Chandra179/auth-service/pkg/oauth2"
+	oidcClient "github.com/Chandra179/auth-service/pkg/oidc"
 	"github.com/Chandra179/auth-service/pkg/random"
 	"github.com/Chandra179/auth-service/pkg/redis"
-	"github.com/Chandra179/auth-service/pkg/serialization"
+	"github.com/Chandra179/auth-service/pkg/serializer"
 	"golang.org/x/oauth2"
 )
 
-type AuthConfig struct {
-	oidcProxy     oidc.OIDCProxy
-	oauth2Proxy   oauth2proxy.Oauth2Proxy
-	cfg           *configs.Config
-	random        random.RandomOperations
-	aes           encryptor.AesOperations
-	serialization serialization.SerializationOperations
-	redisOpr      redis.RedisOperations
+type Oauth2Service struct {
+	oidcClient   oidcClient.OIDCClient
+	oauth2Client oauth2Client.Oauth2Client
+	config       *configs.AppConfig
+	randomGen    random.RandomGenerator
+	encryptor    encryption.AESEncryptor
+	serializer   serializer.JSONSerializer
+	cacheStore   redis.RedisStore
 }
 
-type UserClaims struct {
+type UserProfile struct {
 	Email         string `json:"email"`
 	EmailVerified bool   `json:"email_verified"`
 	Name          string `json:"name"`
 }
 
-type Oauth2State struct {
+type AuthState struct {
 	Verifier string
 	Provider string
 }
 
-func NewAuthentication(ctx context.Context, cfg *configs.Config, rand random.RandomOperations, aes encryptor.AesOperations,
-	ser serialization.SerializationOperations, redisOpr redis.RedisOperations) (*AuthConfig, error) {
-	config := &AuthConfig{
-		random:        rand,
-		aes:           aes,
-		serialization: ser,
-		redisOpr:      redisOpr,
-		cfg:           cfg,
-	}
-
-	return config, nil
+func NewOauth2Service(ctx context.Context, cfg *configs.AppConfig, randGen random.RandomGenerator,
+	encryptor encryption.AESEncryptor, ser serializer.JSONSerializer,
+	cacheStore redis.RedisStore) (*Oauth2Service, error) {
+	return &Oauth2Service{
+		randomGen:  randGen,
+		encryptor:  encryptor,
+		serializer: ser,
+		cacheStore: cacheStore,
+		config:     cfg,
+	}, nil
 }
 
-func (o *AuthConfig) Login(w http.ResponseWriter, r *http.Request) {
+func (s *Oauth2Service) InitiateLogin(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
-	provider := path[len("/login/"):] // Gets everything after "/login/"
+	provider := path[len("/login/"):]
 	if provider == "" {
 		http.Error(w, "Provider is required", http.StatusBadRequest)
 		return
 	}
 
-	oauth2Cfg, err := o.cfg.GetProvider(provider, o.cfg)
+	oauth2Cfg, err := s.config.GetProviderConfig(provider, s.config)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	o.oauth2Proxy = oauth2proxy.NewOauth2(&oauth2Cfg.Oauth2Cfg)
+	s.oauth2Client = oauth2Client.NewOauth2Client(&oauth2Cfg.Oauth2Config)
 
-	state, err := o.random.GenerateRandomString(32)
+	state, err := s.randomGen.String(32)
 	if err != nil {
 		http.Error(w, "Failed to generate state", http.StatusInternalServerError)
 		return
 	}
 
-	verifier, err := o.random.GenerateRandomString(32)
+	verifier, err := s.randomGen.String(32)
 	if err != nil {
 		http.Error(w, "Failed to generate verifier", http.StatusInternalServerError)
 		return
 	}
 
-	// temporary store state: {verifier, provider} in redis, state will be used for LoginCallback state validation
-	// provider name will be used for oauth & oidc config
-	// assuming we will receive the callback within 5 minute after login
-	byteState, err := o.serialization.Marshal(&Oauth2State{Verifier: verifier, Provider: provider})
+	authState := &AuthState{Verifier: verifier, Provider: provider}
+	encodedState, err := s.serializer.Encode(authState)
 	if err != nil {
 		http.Error(w, "Failed to serialize state", http.StatusInternalServerError)
+		return
 	}
-	err = o.redisOpr.Set(state, byteState, 5*time.Minute)
-	if err != nil {
+
+	if err := s.cacheStore.Set(state, encodedState, 5*time.Minute); err != nil {
 		http.Error(w, "Failed to save state", http.StatusInternalServerError)
 		return
 	}
 
-	challenge := o.oauth2Proxy.S256ChallengeFromVerifier(verifier)
-	authURL := o.oauth2Proxy.AuthCodeURL(
+	challenge := s.oauth2Client.S256ChallengeFromVerifier(verifier)
+	authURL := s.oauth2Client.AuthCodeURL(
 		state,
 		oauth2.AccessTypeOffline,
 		oauth2.SetAuthURLParam("include_granted_scopes", "true"),
@@ -101,87 +98,93 @@ func (o *AuthConfig) Login(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, authURL, http.StatusTemporaryRedirect)
 }
 
-func (o *AuthConfig) LoginCallback(w http.ResponseWriter, r *http.Request) {
-	// Verify state
+func (s *Oauth2Service) HandleLoginCallback(w http.ResponseWriter, r *http.Request) {
 	reqState := r.URL.Query().Get("state")
-	state, exists := o.redisOpr.Get(reqState)
-	if exists != nil {
+	encodedState, err := s.cacheStore.Get(reqState)
+	if err != nil {
 		http.Error(w, "Invalid state", http.StatusBadRequest)
 		return
 	}
 
-	// Decode state value
-	curState := &Oauth2State{}
-	err := o.serialization.Unmarshal(state, curState)
-	if err != nil {
-		http.Error(w, "Error deserealize token", http.StatusInternalServerError)
+	authState := &AuthState{}
+	if err := s.serializer.Decode(encodedState, authState); err != nil {
+		http.Error(w, "Error deserializing state", http.StatusInternalServerError)
 		return
 	}
 
-	// Initialize config
-	oauth2Cfg, _ := o.cfg.GetProvider(curState.Provider, o.cfg)
-	o.oauth2Proxy = oauth2proxy.NewOauth2(&oauth2Cfg.Oauth2Cfg)
-	oidc, err := oidc.NewOIDCProxy(r.Context(), oauth2Cfg.Oauth2Issuer)
+	oauth2Cfg, err := s.config.GetProviderConfig(authState.Provider, s.config)
 	if err != nil {
-		fmt.Println("oidc initialize err", err)
+		http.Error(w, "Invalid provider", http.StatusBadRequest)
+		return
 	}
-	o.oidcProxy = oidc
+	s.oauth2Client = oauth2Client.NewOauth2Client(&oauth2Cfg.Oauth2Config)
 
-	// Exchange code for token
-	oauth2Token, err := o.oauth2Proxy.Exchange(r.Context(), r.URL.Query().Get("code"), oauth2.VerifierOption(curState.Verifier))
+	oidc, err := oidcClient.NewOIDCClient(r.Context(), oauth2Cfg.Oauth2Issuer)
+	if err != nil {
+		http.Error(w, "Failed to initialize OIDC client", http.StatusInternalServerError)
+		return
+	}
+	s.oidcClient = oidc
+
+	oauth2Token, err := s.oauth2Client.Exchange(r.Context(), r.URL.Query().Get("code"), oauth2.VerifierOption(authState.Verifier))
 	if err != nil {
 		http.Error(w, "Failed to exchange token", http.StatusInternalServerError)
 		return
 	}
 
-	// Extract the ID Token
-	rawIDToken, ok := o.oauth2Proxy.Extra("id_token", oauth2Token).(string)
+	rawIDToken, ok := s.oauth2Client.Extra("id_token", oauth2Token).(string)
 	if !ok {
 		http.Error(w, "No ID token found", http.StatusInternalServerError)
 		return
 	}
 
-	// Verify the ID Token
-	verifiedToken := o.oidcProxy.Verifier(oauth2Cfg.Oauth2Cfg.ClientID)
-	idToken, err := o.oidcProxy.Verify(r.Context(), verifiedToken, rawIDToken)
+	verifiedToken := s.oidcClient.Verifier(oauth2Cfg.Oauth2Config.ClientID)
+	idToken, err := s.oidcClient.Verify(r.Context(), verifiedToken, rawIDToken)
 	if err != nil {
 		http.Error(w, "Failed to verify ID token", http.StatusInternalServerError)
 		return
 	}
 
-	// Extract custom claims
-	var claims UserClaims
-	if err := o.oidcProxy.Claims(idToken, &claims); err != nil {
+	if err := idToken.VerifyAccessToken(oauth2Token.AccessToken); err != nil {
+		http.Error(w, "Access token not verified: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	var userProfile UserProfile
+	if err := s.oidcClient.Claims(idToken, &userProfile); err != nil {
 		http.Error(w, "Failed to extract claims", http.StatusInternalServerError)
 		return
 	}
 
-	// Serialize token
-	byteCode, err := o.serialization.Marshal(oauth2Token)
-	if err != nil {
-		http.Error(w, "Failed to serializa token", http.StatusInternalServerError)
+	if !userProfile.EmailVerified {
+		http.Error(w, "Email not verified", http.StatusUnauthorized)
+		return
 	}
 
-	// Encrypt token
-	encryptedCode, err := o.aes.Encrypt(byteCode)
+	encodedToken, err := s.serializer.Encode(oauth2Token)
+	if err != nil {
+		http.Error(w, "Failed to serialize token", http.StatusInternalServerError)
+		return
+	}
+
+	encryptedToken, err := s.encryptor.Encrypt(encodedToken)
 	if err != nil {
 		http.Error(w, "Failed to encrypt token", http.StatusInternalServerError)
+		return
 	}
 
-	// Set the HTTP-only and secure cookies for access and refresh tokens
 	http.SetCookie(w, &http.Cookie{
 		Name:     "session_token",
-		Value:    encryptedCode,
+		Value:    encryptedToken,
 		Path:     "/",
 		HttpOnly: true,
-		// Secure:   true,
 		SameSite: http.SameSiteLaxMode,
 	})
 
 	http.Redirect(w, r, "/success", http.StatusSeeOther)
 }
 
-func (o *AuthConfig) RefreshToken(w http.ResponseWriter, r *http.Request) {
+func (s *Oauth2Service) RefreshToken(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
@@ -189,47 +192,42 @@ func (o *AuthConfig) RefreshToken(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if err == http.ErrNoCookie {
 			http.Error(w, "Cookie not found", http.StatusUnauthorized)
-			return
+		} else {
+			http.Error(w, "Error retrieving cookie", http.StatusInternalServerError)
 		}
-		http.Error(w, "Error retrieving cookie", http.StatusInternalServerError)
 		return
 	}
 
-	tokenByte, err := o.aes.Decrypt(cookie.Value)
+	decryptedToken, err := s.encryptor.Decrypt(cookie.Value)
 	if err != nil {
 		http.Error(w, "Error decrypting token", http.StatusInternalServerError)
 		return
 	}
 
-	token := &oauth2.Token{}
-	err = o.serialization.Unmarshal(tokenByte, token)
-	if err != nil {
-		http.Error(w, "Error deserealize token", http.StatusInternalServerError)
+	var token oauth2.Token
+	if err := s.serializer.Decode(decryptedToken, &token); err != nil {
+		http.Error(w, "Error deserializing token", http.StatusInternalServerError)
 		return
 	}
 
-	newToken, err := o.oauth2Proxy.TokenSource(ctx, token).Token()
+	newToken := s.oauth2Client.TokenSource(ctx, &token)
+	encodedToken, err := s.serializer.Encode(newToken)
 	if err != nil {
-		http.Error(w, "Refresh token failed", http.StatusInternalServerError)
+		http.Error(w, "Failed to serialize token", http.StatusInternalServerError)
 		return
 	}
 
-	byteCode, err := o.serialization.Marshal(newToken)
-	if err != nil {
-		http.Error(w, "Failed to serializa token", http.StatusInternalServerError)
-	}
-
-	encryptedCode, err := o.aes.Encrypt(byteCode)
+	encryptedToken, err := s.encryptor.Encrypt(encodedToken)
 	if err != nil {
 		http.Error(w, "Failed to encrypt token", http.StatusInternalServerError)
+		return
 	}
 
 	http.SetCookie(w, &http.Cookie{
 		Name:     "session_token",
-		Value:    encryptedCode,
+		Value:    encryptedToken,
 		Path:     "/",
 		HttpOnly: true,
-		// Secure:   true,
 		SameSite: http.SameSiteLaxMode,
 	})
 }

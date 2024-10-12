@@ -6,7 +6,7 @@ import (
 	"github.com/coreos/go-oidc/v3/oidc"
 )
 
-type OIDCProxy interface {
+type OIDCClient interface {
 	Verifier(clientID string) *oidc.IDTokenVerifier
 	Verify(ctx context.Context, verifier *oidc.IDTokenVerifier, rawIDToken string) (*oidc.IDToken, error)
 	Claims(idToken *oidc.IDToken, v interface{}) error
@@ -16,7 +16,7 @@ type OIDC struct {
 	provider *oidc.Provider
 }
 
-func NewOIDCProxy(ctx context.Context, issuer string) (*OIDC, error) {
+func NewOIDCClient(ctx context.Context, issuer string) (*OIDC, error) {
 	provider, err := oidc.NewProvider(ctx, issuer)
 	if err != nil {
 		return nil, err

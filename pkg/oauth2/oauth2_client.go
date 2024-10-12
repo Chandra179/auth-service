@@ -6,7 +6,7 @@ import (
 	"golang.org/x/oauth2"
 )
 
-type Oauth2Proxy interface {
+type Oauth2Client interface {
 	Exchange(ctx context.Context, code string, opts ...oauth2.AuthCodeOption) (*oauth2.Token, error)
 	Extra(key string, oauth2Token *oauth2.Token) interface{}
 	S256ChallengeFromVerifier(verifier string) string
@@ -18,7 +18,7 @@ type Oauth2 struct {
 	cfg *oauth2.Config
 }
 
-func NewOauth2(cfg *oauth2.Config) *Oauth2 {
+func NewOauth2Client(cfg *oauth2.Config) *Oauth2 {
 	return &Oauth2{
 		cfg: cfg,
 	}

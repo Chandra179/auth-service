@@ -1,4 +1,4 @@
-package serialization
+package serializer
 
 import (
 	"github.com/stretchr/testify/mock"
