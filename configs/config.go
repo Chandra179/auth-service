@@ -16,8 +16,8 @@ type Oauth2Provider struct {
 }
 
 type AppConfig struct {
-	GoogleOauth2Cfg    Oauth2Provider
-	MicrosoftOauth2Cfg Oauth2Provider
+	GoogleOauth2Cfg    *Oauth2Provider
+	MicrosoftOauth2Cfg *Oauth2Provider
 }
 
 func LoadConfig() (*AppConfig, error) {
@@ -27,7 +27,7 @@ func LoadConfig() (*AppConfig, error) {
 	}
 
 	return &AppConfig{
-		GoogleOauth2Cfg: Oauth2Provider{
+		GoogleOauth2Cfg: &Oauth2Provider{
 			Oauth2Config: oauth2.Config{
 				ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
 				ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
@@ -37,7 +37,7 @@ func LoadConfig() (*AppConfig, error) {
 			},
 			Oauth2Issuer: os.Getenv("GOOGLE_OIDC_ISSUER"),
 		},
-		MicrosoftOauth2Cfg: Oauth2Provider{
+		MicrosoftOauth2Cfg: &Oauth2Provider{
 			Oauth2Config: oauth2.Config{
 				ClientID:     os.Getenv("MICROSOFT_CLIENT_ID"),
 				ClientSecret: os.Getenv("MICROSOFT_CLIENT_SECRET"),
@@ -53,10 +53,10 @@ func LoadConfig() (*AppConfig, error) {
 // GetProvider returns a provider configuration by name
 func (c *AppConfig) GetProviderConfig(name string, cfg *AppConfig) (*Oauth2Provider, error) {
 	if name == "google" {
-		return &cfg.GoogleOauth2Cfg, nil
+		return cfg.GoogleOauth2Cfg, nil
 	}
 	if name == "microsoft" {
-		return &cfg.GoogleOauth2Cfg, nil
+		return cfg.GoogleOauth2Cfg, nil
 	}
 	return nil, fmt.Errorf("unsupported provider: %s", name)
 }

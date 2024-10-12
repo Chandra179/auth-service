@@ -145,7 +145,7 @@ func (s *Oauth2Service) HandleLoginCallback(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if err := idToken.VerifyAccessToken(oauth2Token.AccessToken); err != nil {
+	if err := s.oidcClient.VerifyAccessToken(idToken, oauth2Token.AccessToken); err != nil {
 		http.Error(w, "Access token not verified: "+err.Error(), http.StatusBadRequest)
 		return
 	}

@@ -10,6 +10,7 @@ type OIDCClient interface {
 	Verifier(clientID string) *oidc.IDTokenVerifier
 	Verify(ctx context.Context, verifier *oidc.IDTokenVerifier, rawIDToken string) (*oidc.IDToken, error)
 	Claims(idToken *oidc.IDToken, v interface{}) error
+	VerifyAccessToken(idToken *oidc.IDToken, accessToken string) error
 }
 
 type OIDC struct {
@@ -36,4 +37,8 @@ func (o *OIDC) Verify(ctx context.Context, verifier *oidc.IDTokenVerifier, rawID
 
 func (o *OIDC) Claims(idToken *oidc.IDToken, v interface{}) error {
 	return idToken.Claims(v)
+}
+
+func (o *OIDC) VerifyAccessToken(idToken *oidc.IDToken, accessToken string) error {
+	return idToken.VerifyAccessToken(accessToken)
 }
