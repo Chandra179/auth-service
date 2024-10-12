@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -16,13 +17,14 @@ import (
 )
 
 type Oauth2Service struct {
-	oidcClient   oidcClient.OIDCClient
-	oauth2Client oauth2Client.Oauth2Client
-	config       *configs.AppConfig
-	randomGen    random.RandomGenerator
-	encryptor    encryption.AESEncryptor
-	serializer   serializer.JSONSerializer
-	cacheStore   redis.RedisStore
+	appConfigInterface configs.AppConfigInterface
+	oidcClient         oidcClient.OIDCClient
+	oauth2Client       oauth2Client.Oauth2Client
+	config             *configs.AppConfig
+	randomGen          random.RandomGenerator
+	encryptor          encryption.AESEncryptor
+	serializer         serializer.JSONSerializer
+	cacheStore         redis.RedisStore
 }
 
 type UserProfile struct {
@@ -37,14 +39,16 @@ type AuthState struct {
 }
 
 func NewOauth2Service(ctx context.Context, cfg *configs.AppConfig, randGen random.RandomGenerator,
-	encryptor encryption.AESEncryptor, ser serializer.JSONSerializer,
-	cacheStore redis.RedisStore) (*Oauth2Service, error) {
+	encryptor encryption.AESEncryptor, ser serializer.JSONSerializer, cacheStore redis.RedisStore,
+	appConfigInterface configs.AppConfigInterface, oidcClient oidcClient.OIDCClient) (*Oauth2Service, error) {
 	return &Oauth2Service{
-		randomGen:  randGen,
-		encryptor:  encryptor,
-		serializer: ser,
-		cacheStore: cacheStore,
-		config:     cfg,
+		randomGen:          randGen,
+		encryptor:          encryptor,
+		serializer:         ser,
+		cacheStore:         cacheStore,
+		config:             cfg,
+		appConfigInterface: cfg,
+		oidcClient:         oidcClient,
 	}, nil
 }
 
@@ -56,7 +60,7 @@ func (s *Oauth2Service) InitiateLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	oauth2Cfg, err := s.config.GetProviderConfig(provider, s.config)
+	oauth2Cfg, err := s.appConfigInterface.GetProviderConfig(provider, s.config)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -112,19 +116,20 @@ func (s *Oauth2Service) HandleLoginCallback(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	oauth2Cfg, err := s.config.GetProviderConfig(authState.Provider, s.config)
+	oauth2Cfg, err := s.appConfigInterface.GetProviderConfig(authState.Provider, s.config)
 	if err != nil {
 		http.Error(w, "Invalid provider", http.StatusBadRequest)
 		return
 	}
 	s.oauth2Client = oauth2Client.NewOauth2Client(&oauth2Cfg.Oauth2Config)
 
-	oidc, err := oidcClient.NewOIDCClient(r.Context(), oauth2Cfg.Oauth2Issuer)
+	// TODO: create mapper to get the issuer
+	err = s.oidcClient.NewProvider(r.Context(), s.config.GoogleOauth2Cfg.Oauth2Issuer)
 	if err != nil {
-		http.Error(w, "Failed to initialize OIDC client", http.StatusInternalServerError)
+		fmt.Println("AAAAAAAAAAA" + err.Error())
+		http.Error(w, "Failed to initialize Provider", http.StatusInternalServerError)
 		return
 	}
-	s.oidcClient = oidc
 
 	oauth2Token, err := s.oauth2Client.Exchange(r.Context(), r.URL.Query().Get("code"), oauth2.VerifierOption(authState.Verifier))
 	if err != nil {

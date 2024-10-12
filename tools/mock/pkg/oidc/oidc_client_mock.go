@@ -30,3 +30,8 @@ func (m *MockOIDCClient) VerifyAccessToken(idToken *oidc.IDToken, accessToken st
 	args := m.Called(idToken, accessToken)
 	return args.Error(0)
 }
+
+func (m *MockOIDCClient) NewProvider(ctx context.Context, issuer string) error {
+	args := m.Called(ctx, issuer)
+	return args.Error(0)
+}

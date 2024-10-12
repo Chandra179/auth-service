@@ -20,6 +20,10 @@ type AppConfig struct {
 	MicrosoftOauth2Cfg *Oauth2Provider
 }
 
+type AppConfigInterface interface {
+	GetProviderConfig(name string, cfg *AppConfig) (*Oauth2Provider, error)
+}
+
 func LoadConfig() (*AppConfig, error) {
 	err := godotenv.Load()
 	if err != nil {
@@ -56,7 +60,7 @@ func (c *AppConfig) GetProviderConfig(name string, cfg *AppConfig) (*Oauth2Provi
 		return cfg.GoogleOauth2Cfg, nil
 	}
 	if name == "microsoft" {
-		return cfg.GoogleOauth2Cfg, nil
+		return cfg.MicrosoftOauth2Cfg, nil
 	}
 	return nil, fmt.Errorf("unsupported provider: %s", name)
 }

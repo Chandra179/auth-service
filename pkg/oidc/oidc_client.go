@@ -11,24 +11,19 @@ type OIDCClient interface {
 	Verify(ctx context.Context, verifier *oidc.IDTokenVerifier, rawIDToken string) (*oidc.IDToken, error)
 	Claims(idToken *oidc.IDToken, v interface{}) error
 	VerifyAccessToken(idToken *oidc.IDToken, accessToken string) error
+	NewProvider(ctx context.Context, issuer string) error
 }
 
 type OIDC struct {
-	provider *oidc.Provider
+	Provider *oidc.Provider
 }
 
-func NewOIDCClient(ctx context.Context, issuer string) (*OIDC, error) {
-	provider, err := oidc.NewProvider(ctx, issuer)
-	if err != nil {
-		return nil, err
-	}
-	return &OIDC{
-		provider: provider,
-	}, nil
+func NewOIDCClient() *OIDC {
+	return &OIDC{}
 }
 
 func (o *OIDC) Verifier(clientID string) *oidc.IDTokenVerifier {
-	return o.provider.Verifier(&oidc.Config{ClientID: clientID})
+	return o.Provider.Verifier(&oidc.Config{ClientID: clientID})
 }
 
 func (o *OIDC) Verify(ctx context.Context, verifier *oidc.IDTokenVerifier, rawIDToken string) (*oidc.IDToken, error) {
@@ -41,4 +36,13 @@ func (o *OIDC) Claims(idToken *oidc.IDToken, v interface{}) error {
 
 func (o *OIDC) VerifyAccessToken(idToken *oidc.IDToken, accessToken string) error {
 	return idToken.VerifyAccessToken(accessToken)
+}
+
+func (o *OIDC) NewProvider(ctx context.Context, issuer string) error {
+	povider, err := oidc.NewProvider(ctx, issuer)
+	if err != nil {
+		return err
+	}
+	o.Provider = povider
+	return nil
 }
