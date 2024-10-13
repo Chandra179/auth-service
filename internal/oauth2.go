@@ -1,7 +1,24 @@
+/*
+Package internal provides an implementation of an OAuth2 service for user authentication.
+It supports initiating login with OAuth2 providers, handling login callbacks, and refreshing access tokens.
+This package is designed to work with various OAuth2 and OIDC (OpenID Connect) providers.
+
+Components:
+- Oauth2Service: The main structure that handles OAuth2 operations.
+- UserProfile: Structure representing user profile information.
+- AuthState: Structure used to maintain the state during the OAuth2 flow.
+
+Usage:
+To use this package, initialize the Oauth2Service with the necessary dependencies and call
+the appropriate methods to initiate login, handle callbacks, and refresh tokens.
+*/
+
+// Package internal provides an implementation of an OAuth2 service for user authentication.
 package internal
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -15,43 +32,65 @@ import (
 	"golang.org/x/oauth2"
 )
 
+// Oauth2Service is the main structure that handles OAuth2 operations.
 type Oauth2Service struct {
-	appConfigInterface configs.AppConfigInterface
-	oidcClient         oidcClient.OIDCClient
-	oauth2Client       oauth2Client.Oauth2Client
-	config             *configs.AppConfig
-	randomGen          random.RandomGenerator
-	encryptor          encryption.AESEncryptor
-	serializer         serializer.JSONSerializer
-	cacheStore         redis.RedisStore
+	oidcClient   oidcClient.OIDCClient
+	oauth2Client oauth2Client.Oauth2Client
+	config       configs.AppConfigInterface
+	randomGen    random.RandomGenerator
+	encryptor    encryption.AESEncryptor
+	serializer   serializer.JSONSerializer
+	cacheStore   redis.RedisStore
 }
 
+// UserProfile represents the user profile information retrieved from the OAuth2 provider.
 type UserProfile struct {
-	Email         string `json:"email"`
-	EmailVerified bool   `json:"email_verified"`
-	Name          string `json:"name"`
+	Email         string `json:"email"`          // User's email address
+	EmailVerified bool   `json:"email_verified"` // Flag indicating if the user's email is verified
+	Name          string `json:"name"`           // User's name
 }
 
+// AuthState holds the verifier and provider information during the OAuth2 flow.
 type AuthState struct {
-	Verifier string
-	Provider string
+	Verifier string // The code verifier for PKCE
+	Provider string // The name of the OAuth2 provider
 }
 
-func NewOauth2Service(ctx context.Context, cfg *configs.AppConfig, randGen random.RandomGenerator,
+// NewOauth2Service creates a new Oauth2Service instance with the provided dependencies.
+// Parameters:
+//   - ctx: The context for managing request lifecycle.
+//   - cfg: Application configuration interface.
+//   - randGen: Random generator for generating unique state and verifier.
+//   - encryptor: Encryptor for securing tokens.
+//   - ser: Serializer for encoding and decoding data.
+//   - cacheStore: Cache store for managing state.
+//   - oidcClient: OIDC client for handling OpenID Connect functionalities.
+//   - oauth2Client: OAuth2 client for handling OAuth2 operations.
+//
+// Returns:
+//   - A pointer to the newly created Oauth2Service instance.
+//   - An error if the initialization fails.
+func NewOauth2Service(ctx context.Context, cfg configs.AppConfigInterface, randGen random.RandomGenerator,
 	encryptor encryption.AESEncryptor, ser serializer.JSONSerializer, cacheStore redis.RedisStore,
-	appConfigInterface configs.AppConfigInterface, oidcClient oidcClient.OIDCClient, oauth2Client oauth2Client.Oauth2Client) (*Oauth2Service, error) {
+	oidcClient oidcClient.OIDCClient, oauth2Client oauth2Client.Oauth2Client) (*Oauth2Service, error) {
 	return &Oauth2Service{
-		randomGen:          randGen,
-		encryptor:          encryptor,
-		serializer:         ser,
-		cacheStore:         cacheStore,
-		config:             cfg,
-		appConfigInterface: cfg,
-		oidcClient:         oidcClient,
-		oauth2Client:       oauth2Client,
+		randomGen:    randGen,
+		encryptor:    encryptor,
+		serializer:   ser,
+		cacheStore:   cacheStore,
+		config:       cfg,
+		oidcClient:   oidcClient,
+		oauth2Client: oauth2Client,
 	}, nil
 }
 
+// InitiateLogin starts the OAuth2 login process by redirecting the user to the provider's authorization URL.
+// Parameters:
+//   - w: The http.ResponseWriter for sending responses to the client.
+//   - r: The http.Request containing the login request.
+//
+// Returns:
+//   - An error response if any step in the process fails.
 func (s *Oauth2Service) InitiateLogin(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 	provider := path[len("/login/"):]
@@ -60,8 +99,8 @@ func (s *Oauth2Service) InitiateLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Handle oauth2 provider configuration
-	oauth2Cfg, err := s.appConfigInterface.GetProviderConfig(provider, s.config)
+	// Handle OAuth2 provider configuration
+	oauth2Cfg, err := s.config.GetOauth2ProviderConfig(provider)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -103,6 +142,14 @@ func (s *Oauth2Service) InitiateLogin(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, authURL, http.StatusTemporaryRedirect)
 }
 
+// HandleLoginCallback handles the OAuth2 provider's callback after the user has logged in.
+// It validates the state, exchanges the authorization code for tokens, and verifies the ID token.
+// Parameters:
+//   - w: The http.ResponseWriter for sending responses to the client.
+//   - r: The http.Request containing the callback request.
+//
+// Returns:
+//   - An error response if any step in the process fails.
 func (s *Oauth2Service) HandleLoginCallback(w http.ResponseWriter, r *http.Request) {
 	reqState := r.URL.Query().Get("state")
 	encodedState, err := s.cacheStore.Get(reqState)
@@ -117,14 +164,15 @@ func (s *Oauth2Service) HandleLoginCallback(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	oauth2Cfg, err := s.appConfigInterface.GetProviderConfig(authState.Provider, s.config)
+	oauth2Cfg, err := s.config.GetOauth2ProviderConfig(authState.Provider)
 	if err != nil {
+		fmt.Println("err" + err.Error())
 		http.Error(w, "Invalid provider", http.StatusBadRequest)
 		return
 	}
 	s.oauth2Client.SetConfig(&oauth2Cfg.Oauth2Config)
 
-	// Set oidc configuration
+	// Set OIDC configuration
 	err = s.oidcClient.NewProvider(r.Context(), oauth2Cfg.Oauth2Issuer)
 	if err != nil {
 		http.Error(w, "Failed to initialize Provider", http.StatusInternalServerError)
@@ -189,6 +237,13 @@ func (s *Oauth2Service) HandleLoginCallback(w http.ResponseWriter, r *http.Reque
 	http.Redirect(w, r, "/success", http.StatusSeeOther)
 }
 
+// RefreshToken refreshes the OAuth2 token by exchanging the current session token for a new one.
+// Parameters:
+//   - w: The http.ResponseWriter for sending responses to the client.
+//   - r: The http.Request containing the refresh request.
+//
+// Returns:
+//   - An error response if the refresh operation fails.
 func (s *Oauth2Service) RefreshToken(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()

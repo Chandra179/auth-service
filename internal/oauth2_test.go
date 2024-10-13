@@ -31,18 +31,17 @@ func TestLogin_WhenAllSystemsOperational_ShouldRedirectToAuthProvider(t *testing
 	oauth2State := []byte("encoded_state")
 
 	config := &Oauth2Service{
-		randomGen:          mockRandom,
-		cacheStore:         mockRedis,
-		oauth2Client:       mockOauth2Client,
-		serializer:         mockSerializer,
-		config:             &configs.AppConfig{GoogleOauth2Cfg: &configs.Oauth2Provider{}},
-		appConfigInterface: mockConfigsInterface,
+		randomGen:    mockRandom,
+		cacheStore:   mockRedis,
+		oauth2Client: mockOauth2Client,
+		serializer:   mockSerializer,
+		config:       mockConfigsInterface,
 	}
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/login/google", nil)
 
-	mockConfigsInterface.On("GetProviderConfig", "google", config.config).Return(&configs.Oauth2Provider{}, nil).Once()
+	mockConfigsInterface.On("GetOauth2ProviderConfig", "google").Return(&configs.Oauth2Provider{}, nil).Once()
 	mockOauth2Client.On("SetConfig", mock.Anything).Return()
 	mockRandom.On("String", int64(32)).Return("abcd", nil).Times(2)
 	mockSerializer.On("Encode", mock.MatchedBy(func(as *AuthState) bool {
@@ -85,14 +84,13 @@ func TestLoginCallback_WhenValidStateAndCode_ShouldSetAccessTokenCookie(t *testi
 	mockConfigsInterface := &configsmock.MockConfigs{}
 
 	config := &Oauth2Service{
-		cacheStore:         mockRedis,
-		oauth2Client:       mockOauth2Client,
-		oidcClient:         mockOIDCClient,
-		serializer:         mockSerializer,
-		encryptor:          mockEncryptor,
-		randomGen:          mockRandom,
-		config:             &configs.AppConfig{GoogleOauth2Cfg: &configs.Oauth2Provider{}},
-		appConfigInterface: mockConfigsInterface,
+		cacheStore:   mockRedis,
+		oauth2Client: mockOauth2Client,
+		oidcClient:   mockOIDCClient,
+		serializer:   mockSerializer,
+		encryptor:    mockEncryptor,
+		randomGen:    mockRandom,
+		config:       mockConfigsInterface,
 	}
 
 	w := httptest.NewRecorder()
@@ -101,7 +99,7 @@ func TestLoginCallback_WhenValidStateAndCode_ShouldSetAccessTokenCookie(t *testi
 	token := &oauth2.Token{AccessToken: "access123"}
 	storedState := []byte("stored-state")
 	rawIDToken := "raw-id-token"
-	verifierObj := &oidc.IDTokenVerifier{}
+	verifier := &oidc.IDTokenVerifier{}
 	idToken := &oidc.IDToken{}
 	oauth2Provider := &configs.Oauth2Provider{
 		Oauth2Issuer: "https://accounts.google.com",
@@ -116,13 +114,13 @@ func TestLoginCallback_WhenValidStateAndCode_ShouldSetAccessTokenCookie(t *testi
 
 	mockRedis.On("Get", "state123").Return(storedState, nil)
 	mockSerializer.On("Decode", storedState, mock.AnythingOfType("*internal.AuthState")).Return(nil)
-	mockConfigsInterface.On("GetProviderConfig", mock.Anything, config.config).Return(oauth2Provider, nil)
+	mockConfigsInterface.On("GetOauth2ProviderConfig", mock.Anything).Return(oauth2Provider, nil)
 	mockOauth2Client.On("SetConfig", mock.Anything).Return()
 	mockOIDCClient.On("NewProvider", r.Context(), oauth2Provider.Oauth2Issuer).Return(nil)
 	mockOauth2Client.On("Exchange", mock.Anything, "code123", mock.Anything).Return(token, nil)
 	mockOauth2Client.On("Extra", "id_token", token).Return(rawIDToken)
-	mockOIDCClient.On("Verifier", oauth2Provider.Oauth2Config.ClientID).Return(verifierObj)
-	mockOIDCClient.On("Verify", r.Context(), verifierObj, rawIDToken).Return(idToken, nil)
+	mockOIDCClient.On("Verifier", oauth2Provider.Oauth2Config.ClientID).Return(verifier)
+	mockOIDCClient.On("Verify", r.Context(), verifier, rawIDToken).Return(idToken, nil)
 	mockOIDCClient.On("VerifyAccessToken", idToken, token.AccessToken).Return(nil)
 	mockOIDCClient.On("Claims", idToken, mock.AnythingOfType("*internal.UserProfile")).Return(nil)
 	mockOIDCClient.On("IsEmailVerified", mock.Anything).Return(true)

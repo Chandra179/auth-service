@@ -10,7 +10,7 @@ type MockConfigs struct {
 	mock.Mock
 }
 
-func (m *MockConfigs) GetProviderConfig(name string, cfg *configs.AppConfig) (*configs.Oauth2Provider, error) {
-	args := m.Called(name, cfg)
+func (m *MockConfigs) GetOauth2ProviderConfig(name string) (*configs.Oauth2Provider, error) {
+	args := m.Called(name)
 	return args.Get(0).(*configs.Oauth2Provider), args.Error(1)
 }
