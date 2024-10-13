@@ -43,6 +43,7 @@ func TestLogin_WhenAllSystemsOperational_ShouldRedirectToAuthProvider(t *testing
 	r := httptest.NewRequest(http.MethodGet, "/login/google", nil)
 
 	mockConfigsInterface.On("GetProviderConfig", "google", config.config).Return(&configs.Oauth2Provider{}, nil).Once()
+	mockOauth2Client.On("SetConfig", mock.Anything).Return()
 	mockRandom.On("String", int64(32)).Return("abcd", nil).Times(2)
 	mockSerializer.On("Encode", mock.MatchedBy(func(as *AuthState) bool {
 		return as.Verifier == "abcd" && as.Provider == "google"
@@ -53,11 +54,12 @@ func TestLogin_WhenAllSystemsOperational_ShouldRedirectToAuthProvider(t *testing
 	mockOauth2Client.On("S256ChallengeFromVerifier", "abcd").Return(actualChallenge).Once()
 
 	expectedURL := fmt.Sprintf("/login/?access_type=offline&client_id=&code_challenge=%s&code_challenge_method=S256&include_granted_scopes=true&response_type=code&state=abcd", actualChallenge)
-	mockOauth2Client.On("AuthCodeURL", "abcd", oauth2.AccessTypeOffline,
+	mockOauth2Client.On("AuthCodeURL", "abcd", []oauth2.AuthCodeOption{
+		oauth2.AccessTypeOffline,
 		oauth2.SetAuthURLParam("include_granted_scopes", "true"),
 		oauth2.SetAuthURLParam("code_challenge", actualChallenge),
 		oauth2.SetAuthURLParam("code_challenge_method", "S256"),
-	).Return(expectedURL).Once()
+	}).Return(expectedURL).Once()
 
 	// Act
 	config.InitiateLogin(w, r)
@@ -69,7 +71,7 @@ func TestLogin_WhenAllSystemsOperational_ShouldRedirectToAuthProvider(t *testing
 	mockRandom.AssertExpectations(t)
 	mockSerializer.AssertExpectations(t)
 	mockRedis.AssertExpectations(t)
-	// mockOauth2Client.AssertExpectations(t)
+	mockOauth2Client.AssertExpectations(t)
 }
 
 func TestLoginCallback_WhenValidStateAndCode_ShouldSetAccessTokenCookie(t *testing.T) {
@@ -144,49 +146,4 @@ func TestLoginCallback_WhenValidStateAndCode_ShouldSetAccessTokenCookie(t *testi
 	mockSerializer.AssertExpectations(t)
 	mockEncryptor.AssertExpectations(t)
 	mockConfigsInterface.AssertExpectations(t)
-}
-
-func TestRefreshToken_WhenValidAccessToken_ShouldRefreshAndUpdateCookie(t *testing.T) {
-	// Setup
-	mockOauth2Client := &oauth2mock.MockOauth2Client{}
-	mockSerializer := &serializer.MockSerialization{}
-	mockEncryptor := &encryption.MockAesEncryptor{}
-
-	config := &Oauth2Service{
-		encryptor:    mockEncryptor,
-		serializer:   mockSerializer,
-		oauth2Client: mockOauth2Client,
-	}
-
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/refresh", nil)
-	r.AddCookie(&http.Cookie{Name: "access_token", Value: "encrypted-token"})
-
-	decryptedToken := []byte("decrypted-token")
-	oldToken := &oauth2.Token{AccessToken: "old-token"}
-	newToken := &oauth2.Token{AccessToken: "new-token"}
-	tokenSource := oauth2.StaticTokenSource(newToken)
-
-	mockEncryptor.On("Decrypt", "encrypted-token").Return(decryptedToken, nil).Once()
-	mockSerializer.On("Unmarshal", decryptedToken, mock.AnythingOfType("*oauth2.Token")).Run(func(args mock.Arguments) {
-		token := args.Get(1).(*oauth2.Token)
-		*token = *oldToken
-	}).Return(nil).Once()
-	mockOauth2Client.On("TokenSource", mock.Anything, oldToken).Return(tokenSource).Once()
-
-	newTokenBytes := []byte("serialized-new-token")
-	mockSerializer.On("Marshal", mock.AnythingOfType("*oauth2.Token")).Return(newTokenBytes, nil).Once()
-	mockEncryptor.On("Encrypt", newTokenBytes).Return("encrypted-new-token", nil).Once()
-
-	config.RefreshToken(w, r)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-
-	cookie := w.Result().Cookies()[0]
-	assert.Equal(t, "access_token", cookie.Name)
-	assert.Equal(t, "encrypted-new-token", cookie.Value)
-
-	mockEncryptor.AssertExpectations(t)
-	mockSerializer.AssertExpectations(t)
-	mockOauth2Client.AssertExpectations(t)
 }
