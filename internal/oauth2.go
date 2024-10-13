@@ -2,7 +2,6 @@ package internal
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"time"
 
@@ -40,7 +39,7 @@ type AuthState struct {
 
 func NewOauth2Service(ctx context.Context, cfg *configs.AppConfig, randGen random.RandomGenerator,
 	encryptor encryption.AESEncryptor, ser serializer.JSONSerializer, cacheStore redis.RedisStore,
-	appConfigInterface configs.AppConfigInterface, oidcClient oidcClient.OIDCClient) (*Oauth2Service, error) {
+	appConfigInterface configs.AppConfigInterface, oidcClient oidcClient.OIDCClient, oauth2Client oauth2Client.Oauth2Client) (*Oauth2Service, error) {
 	return &Oauth2Service{
 		randomGen:          randGen,
 		encryptor:          encryptor,
@@ -49,6 +48,7 @@ func NewOauth2Service(ctx context.Context, cfg *configs.AppConfig, randGen rando
 		config:             cfg,
 		appConfigInterface: cfg,
 		oidcClient:         oidcClient,
+		oauth2Client:       oauth2Client,
 	}, nil
 }
 
@@ -60,12 +60,13 @@ func (s *Oauth2Service) InitiateLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Handle oauth2 provider configuration
 	oauth2Cfg, err := s.appConfigInterface.GetProviderConfig(provider, s.config)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	s.oauth2Client = oauth2Client.NewOauth2Client(&oauth2Cfg.Oauth2Config)
+	s.oauth2Client.SetConfig(&oauth2Cfg.Oauth2Config)
 
 	state, err := s.randomGen.String(32)
 	if err != nil {
@@ -121,8 +122,9 @@ func (s *Oauth2Service) HandleLoginCallback(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "Invalid provider", http.StatusBadRequest)
 		return
 	}
-	s.oauth2Client = oauth2Client.NewOauth2Client(&oauth2Cfg.Oauth2Config)
+	s.oauth2Client.SetConfig(&oauth2Cfg.Oauth2Config)
 
+	// Set oidc configuration
 	err = s.oidcClient.NewProvider(r.Context(), oauth2Cfg.Oauth2Issuer)
 	if err != nil {
 		http.Error(w, "Failed to initialize Provider", http.StatusInternalServerError)
@@ -131,7 +133,6 @@ func (s *Oauth2Service) HandleLoginCallback(w http.ResponseWriter, r *http.Reque
 
 	oauth2Token, err := s.oauth2Client.Exchange(context.Background(), "code123", "authState.Verifier")
 	if err != nil {
-		fmt.Println("BBBBB" + err.Error())
 		http.Error(w, "Failed to exchange token", http.StatusInternalServerError)
 		return
 	}

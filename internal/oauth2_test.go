@@ -104,9 +104,7 @@ func TestLoginCallback_WhenValidStateAndCode_ShouldSetAccessTokenCookie(t *testi
 	oauth2Provider := &configs.Oauth2Provider{
 		Oauth2Issuer: "https://accounts.google.com",
 		Oauth2Config: oauth2.Config{
-			ClientID:     "client-id",
-			ClientSecret: "client-secret",
-			RedirectURL:  "http://localhost:8080/callback",
+			RedirectURL: "http://localhost:8080/callback",
 			Endpoint: oauth2.Endpoint{
 				AuthURL:  "https://accounts.google.com/o/oauth2/auth",
 				TokenURL: "https://oauth2.googleapis.com/token",
@@ -117,6 +115,7 @@ func TestLoginCallback_WhenValidStateAndCode_ShouldSetAccessTokenCookie(t *testi
 	mockRedis.On("Get", "state123").Return(storedState, nil)
 	mockSerializer.On("Decode", storedState, mock.AnythingOfType("*internal.AuthState")).Return(nil)
 	mockConfigsInterface.On("GetProviderConfig", mock.Anything, config.config).Return(oauth2Provider, nil)
+	mockOauth2Client.On("SetConfig", mock.Anything).Return()
 	mockOIDCClient.On("NewProvider", r.Context(), oauth2Provider.Oauth2Issuer).Return(nil)
 	mockOauth2Client.On("Exchange", mock.Anything, "code123", mock.Anything).Return(token, nil)
 	mockOauth2Client.On("Extra", "id_token", token).Return(rawIDToken)

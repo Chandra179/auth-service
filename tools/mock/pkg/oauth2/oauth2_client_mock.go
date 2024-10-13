@@ -35,3 +35,7 @@ func (m *MockOauth2Client) TokenSource(ctx context.Context, t *oauth2.Token) oau
 	args := m.Called(ctx, t)
 	return args.Get(0).(oauth2.TokenSource)
 }
+
+func (m *MockOauth2Client) SetConfig(cfg *oauth2.Config) {
+	m.Called(cfg)
+}

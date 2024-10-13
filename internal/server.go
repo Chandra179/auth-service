@@ -9,6 +9,7 @@ import (
 	"github.com/Chandra179/auth-service/api"
 	"github.com/Chandra179/auth-service/configs"
 	"github.com/Chandra179/auth-service/pkg/encryption"
+	"github.com/Chandra179/auth-service/pkg/oauth2"
 	"github.com/Chandra179/auth-service/pkg/oidc"
 	"github.com/Chandra179/auth-service/pkg/random"
 	"github.com/Chandra179/auth-service/pkg/redis"
@@ -46,7 +47,8 @@ func StartServer() {
 	// Authentication
 	// --------------
 	oidc := oidc.NewOIDCClient()
-	auth, err := NewOauth2Service(context.Background(), config, rand, aes, ser, rdb, config, oidc)
+	oauth2 := oauth2.NewOauth2Client()
+	auth, err := NewOauth2Service(context.Background(), config, rand, aes, ser, rdb, config, oidc, oauth2)
 	if err != nil {
 		fmt.Println("Oauth2Service initialization failed", err)
 	}
