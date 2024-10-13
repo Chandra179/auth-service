@@ -48,7 +48,7 @@ func StartServer() {
 	// --------------
 	oidc := oidc.NewOIDCClient()
 	oauth2 := oauth2.NewOauth2Client()
-	auth, err := NewOauth2Service(context.Background(), config, rand, aes, ser, rdb, config, oidc, oauth2)
+	auth, err := NewOauth2Service(context.Background(), config, rand, aes, ser, rdb, oidc, oauth2)
 	if err != nil {
 		fmt.Println("Oauth2Service initialization failed", err)
 	}

@@ -21,7 +21,7 @@ type AppConfig struct {
 }
 
 type AppConfigInterface interface {
-	GetProviderConfig(name string, cfg *AppConfig) (*Oauth2Provider, error)
+	GetProviderConfig(name string) (*Oauth2Provider, error)
 }
 
 func LoadConfig() (*AppConfig, error) {
@@ -55,12 +55,12 @@ func LoadConfig() (*AppConfig, error) {
 }
 
 // GetProvider returns a provider configuration by name
-func (c *AppConfig) GetProviderConfig(name string, cfg *AppConfig) (*Oauth2Provider, error) {
+func (c *AppConfig) GetProviderConfig(name string) (*Oauth2Provider, error) {
 	if name == "google" {
-		return cfg.GoogleOauth2Cfg, nil
+		return c.GoogleOauth2Cfg, nil
 	}
 	if name == "microsoft" {
-		return cfg.MicrosoftOauth2Cfg, nil
+		return c.MicrosoftOauth2Cfg, nil
 	}
 	return nil, fmt.Errorf("unsupported provider: %s", name)
 }
