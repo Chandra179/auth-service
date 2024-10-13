@@ -131,7 +131,7 @@ func (s *Oauth2Service) HandleLoginCallback(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	oauth2Token, err := s.oauth2Client.Exchange(context.Background(), "code123", "authState.Verifier")
+	oauth2Token, err := s.oauth2Client.Exchange(context.Background(), r.URL.Query().Get("code"), authState.Verifier)
 	if err != nil {
 		http.Error(w, "Failed to exchange token", http.StatusInternalServerError)
 		return
