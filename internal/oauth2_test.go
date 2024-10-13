@@ -41,7 +41,7 @@ func TestLogin_WhenAllSystemsOperational_ShouldRedirectToAuthProvider(t *testing
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/login/google", nil)
 
-	mockConfigsInterface.On("GetProviderConfig", "google").Return(&configs.Oauth2Provider{}, nil).Once()
+	mockConfigsInterface.On("GetOauth2ProviderConfig", "google").Return(&configs.Oauth2Provider{}, nil).Once()
 	mockOauth2Client.On("SetConfig", mock.Anything).Return()
 	mockRandom.On("String", int64(32)).Return("abcd", nil).Times(2)
 	mockSerializer.On("Encode", mock.MatchedBy(func(as *AuthState) bool {
@@ -114,7 +114,7 @@ func TestLoginCallback_WhenValidStateAndCode_ShouldSetAccessTokenCookie(t *testi
 
 	mockRedis.On("Get", "state123").Return(storedState, nil)
 	mockSerializer.On("Decode", storedState, mock.AnythingOfType("*internal.AuthState")).Return(nil)
-	mockConfigsInterface.On("GetProviderConfig", mock.Anything).Return(oauth2Provider, nil)
+	mockConfigsInterface.On("GetOauth2ProviderConfig", mock.Anything).Return(oauth2Provider, nil)
 	mockOauth2Client.On("SetConfig", mock.Anything).Return()
 	mockOIDCClient.On("NewProvider", r.Context(), oauth2Provider.Oauth2Issuer).Return(nil)
 	mockOauth2Client.On("Exchange", mock.Anything, "code123", mock.Anything).Return(token, nil)
