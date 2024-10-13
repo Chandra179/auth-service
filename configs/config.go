@@ -21,7 +21,7 @@ type AppConfig struct {
 }
 
 type AppConfigInterface interface {
-	GetProviderConfig(name string) (*Oauth2Provider, error)
+	GetOauth2ProviderConfig(name string) (*Oauth2Provider, error)
 }
 
 func LoadConfig() (*AppConfig, error) {
@@ -54,8 +54,8 @@ func LoadConfig() (*AppConfig, error) {
 	}, nil
 }
 
-// GetProvider returns a provider configuration by name
-func (c *AppConfig) GetProviderConfig(name string) (*Oauth2Provider, error) {
+// GetOauth2ProviderConfig returns a provider configuration by name
+func (c *AppConfig) GetOauth2ProviderConfig(name string) (*Oauth2Provider, error) {
 	if name == "google" {
 		return c.GoogleOauth2Cfg, nil
 	}

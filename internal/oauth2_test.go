@@ -99,7 +99,7 @@ func TestLoginCallback_WhenValidStateAndCode_ShouldSetAccessTokenCookie(t *testi
 	token := &oauth2.Token{AccessToken: "access123"}
 	storedState := []byte("stored-state")
 	rawIDToken := "raw-id-token"
-	verifierObj := &oidc.IDTokenVerifier{}
+	verifier := &oidc.IDTokenVerifier{}
 	idToken := &oidc.IDToken{}
 	oauth2Provider := &configs.Oauth2Provider{
 		Oauth2Issuer: "https://accounts.google.com",
@@ -119,8 +119,8 @@ func TestLoginCallback_WhenValidStateAndCode_ShouldSetAccessTokenCookie(t *testi
 	mockOIDCClient.On("NewProvider", r.Context(), oauth2Provider.Oauth2Issuer).Return(nil)
 	mockOauth2Client.On("Exchange", mock.Anything, "code123", mock.Anything).Return(token, nil)
 	mockOauth2Client.On("Extra", "id_token", token).Return(rawIDToken)
-	mockOIDCClient.On("Verifier", oauth2Provider.Oauth2Config.ClientID).Return(verifierObj)
-	mockOIDCClient.On("Verify", r.Context(), verifierObj, rawIDToken).Return(idToken, nil)
+	mockOIDCClient.On("Verifier", oauth2Provider.Oauth2Config.ClientID).Return(verifier)
+	mockOIDCClient.On("Verify", r.Context(), verifier, rawIDToken).Return(idToken, nil)
 	mockOIDCClient.On("VerifyAccessToken", idToken, token.AccessToken).Return(nil)
 	mockOIDCClient.On("Claims", idToken, mock.AnythingOfType("*internal.UserProfile")).Return(nil)
 	mockOIDCClient.On("IsEmailVerified", mock.Anything).Return(true)

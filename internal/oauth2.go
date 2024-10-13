@@ -100,7 +100,7 @@ func (s *Oauth2Service) InitiateLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Handle OAuth2 provider configuration
-	oauth2Cfg, err := s.config.GetProviderConfig(provider)
+	oauth2Cfg, err := s.config.GetOauth2ProviderConfig(provider)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -164,7 +164,7 @@ func (s *Oauth2Service) HandleLoginCallback(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	oauth2Cfg, err := s.config.GetProviderConfig(authState.Provider)
+	oauth2Cfg, err := s.config.GetOauth2ProviderConfig(authState.Provider)
 	if err != nil {
 		fmt.Println("err" + err.Error())
 		http.Error(w, "Invalid provider", http.StatusBadRequest)
