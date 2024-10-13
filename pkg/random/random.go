@@ -6,8 +6,8 @@ import (
 	"fmt"
 )
 
-type RandomOperations interface {
-	GenerateRandomString(byteLen int64) (string, error)
+type RandomGenerator interface {
+	String(byteLen int64) (string, error)
 }
 
 type Random struct{}
@@ -16,7 +16,7 @@ func NewRandom() *Random {
 	return &Random{}
 }
 
-func (r *Random) GenerateRandomString(byteLen int64) (string, error) {
+func (r *Random) String(byteLen int64) (string, error) {
 	b := make([]byte, byteLen)
 	_, err := rand.Read(b)
 	if err != nil {

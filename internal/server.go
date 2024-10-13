@@ -8,12 +8,12 @@ import (
 
 	"github.com/Chandra179/auth-service/api"
 	"github.com/Chandra179/auth-service/configs"
-	"github.com/Chandra179/auth-service/pkg/encryptor"
+	"github.com/Chandra179/auth-service/pkg/encryption"
 	"github.com/Chandra179/auth-service/pkg/oauth2"
 	"github.com/Chandra179/auth-service/pkg/oidc"
 	"github.com/Chandra179/auth-service/pkg/random"
 	"github.com/Chandra179/auth-service/pkg/redis"
-	"github.com/Chandra179/auth-service/pkg/serialization"
+	"github.com/Chandra179/auth-service/pkg/serializer"
 )
 
 func StartServer() {
@@ -31,11 +31,11 @@ func StartServer() {
 	// --------------
 	// Serialization
 	// --------------
-	ser := serialization.NewGobSerialization()
+	ser := serializer.NewGobSerialization()
 	// --------------
 	// Enryption
 	// --------------
-	aes, err := encryptor.NewAesEncryptor("0123456789abcdef") //16 bytes key
+	aes, err := encryption.NewAesEncryptor("0123456789abcdef") //16 bytes key
 	if err != nil {
 		fmt.Println("encryption err", err)
 	}
@@ -46,15 +46,11 @@ func StartServer() {
 	// --------------
 	// Authentication
 	// --------------
-	oidc, err := oidc.NewOIDC(context.Background(), config.Oauth2Issuer)
+	oidc := oidc.NewOIDCClient()
+	oauth2 := oauth2.NewOauth2Client()
+	auth, err := NewOauth2Service(context.Background(), config, rand, aes, ser, rdb, config, oidc, oauth2)
 	if err != nil {
-		fmt.Println("oidc initialize err", err)
-	}
-	oauth2 := oauth2.NewOauth2(&config.Oauth2Cfg)
-
-	auth, err := NewAuthentication(context.Background(), &config.Oauth2Cfg, rand, aes, ser, rdb, oidc, oauth2)
-	if err != nil {
-		fmt.Println("oidc initializatin failed", err)
+		fmt.Println("Oauth2Service initialization failed", err)
 	}
 	// --------------
 	// API setup

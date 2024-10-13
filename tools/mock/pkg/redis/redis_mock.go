@@ -15,9 +15,9 @@ func (m *MockRedisClient) Set(key string, value interface{}, expiration time.Dur
 	return args.Error(0)
 }
 
-func (m *MockRedisClient) Get(key string) (string, error) {
+func (m *MockRedisClient) Get(key string) ([]byte, error) {
 	args := m.Called(key)
-	return args.String(0), args.Error(1)
+	return args.Get(0).([]byte), args.Error(1)
 }
 
 func (m *MockRedisClient) Delete(key string) error {

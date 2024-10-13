@@ -9,9 +9,9 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-type RedisOperations interface {
+type RedisStore interface {
 	Set(key string, value interface{}, expiration time.Duration) error
-	Get(key string) (string, error)
+	Get(key string) ([]byte, error)
 	Delete(key string) error
 }
 
@@ -48,8 +48,8 @@ func (r *RedisClient) Set(key string, value interface{}, expiration time.Duratio
 }
 
 // Get retrieves the value for a given key.
-func (r *RedisClient) Get(key string) (string, error) {
-	return r.client.Get(r.ctx, key).Result()
+func (r *RedisClient) Get(key string) ([]byte, error) {
+	return r.client.Get(r.ctx, key).Bytes()
 }
 
 // Delete removes a key from Redis.
