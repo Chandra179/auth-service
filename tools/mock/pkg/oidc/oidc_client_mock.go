@@ -35,3 +35,8 @@ func (m *MockOIDCClient) NewProvider(ctx context.Context, issuer string) error {
 	args := m.Called(ctx, issuer)
 	return args.Error(0)
 }
+
+func (m *MockOIDCClient) IsEmailVerified(i bool) bool {
+	args := m.Called(i)
+	return args.Bool(0)
+}

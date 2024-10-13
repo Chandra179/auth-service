@@ -123,16 +123,15 @@ func (s *Oauth2Service) HandleLoginCallback(w http.ResponseWriter, r *http.Reque
 	}
 	s.oauth2Client = oauth2Client.NewOauth2Client(&oauth2Cfg.Oauth2Config)
 
-	// TODO: create mapper to get the issuer
-	err = s.oidcClient.NewProvider(r.Context(), s.config.GoogleOauth2Cfg.Oauth2Issuer)
+	err = s.oidcClient.NewProvider(r.Context(), oauth2Cfg.Oauth2Issuer)
 	if err != nil {
-		fmt.Println("AAAAAAAAAAA" + err.Error())
 		http.Error(w, "Failed to initialize Provider", http.StatusInternalServerError)
 		return
 	}
 
-	oauth2Token, err := s.oauth2Client.Exchange(r.Context(), r.URL.Query().Get("code"), oauth2.VerifierOption(authState.Verifier))
+	oauth2Token, err := s.oauth2Client.Exchange(context.Background(), "code123", "authState.Verifier")
 	if err != nil {
+		fmt.Println("BBBBB" + err.Error())
 		http.Error(w, "Failed to exchange token", http.StatusInternalServerError)
 		return
 	}
@@ -161,7 +160,7 @@ func (s *Oauth2Service) HandleLoginCallback(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if !userProfile.EmailVerified {
+	if !s.oidcClient.IsEmailVerified(userProfile.EmailVerified) {
 		http.Error(w, "Email not verified", http.StatusUnauthorized)
 		return
 	}

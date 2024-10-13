@@ -21,8 +21,8 @@ func (m *MockOauth2Client) AuthCodeURL(state string, opts ...oauth2.AuthCodeOpti
 	return args.String(0)
 }
 
-func (m *MockOauth2Client) Exchange(ctx context.Context, code string, opts ...oauth2.AuthCodeOption) (*oauth2.Token, error) {
-	args := m.Called(ctx, code, opts)
+func (m *MockOauth2Client) Exchange(ctx context.Context, code string, verifier string) (*oauth2.Token, error) {
+	args := m.Called(ctx, code, verifier)
 	return args.Get(0).(*oauth2.Token), args.Error(1)
 }
 

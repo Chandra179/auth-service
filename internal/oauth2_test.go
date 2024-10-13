@@ -97,32 +97,38 @@ func TestLoginCallback_WhenValidStateAndCode_ShouldSetAccessTokenCookie(t *testi
 	r := httptest.NewRequest(http.MethodGet, "/callback?state=state123&code=code123", nil)
 
 	token := &oauth2.Token{AccessToken: "access123"}
-	storedState := []byte{}
+	storedState := []byte("stored-state")
 	rawIDToken := "raw-id-token"
 	verifierObj := &oidc.IDTokenVerifier{}
 	idToken := &oidc.IDToken{}
 	oauth2Provider := &configs.Oauth2Provider{
-		Oauth2Issuer: "",
+		Oauth2Issuer: "https://accounts.google.com",
 		Oauth2Config: oauth2.Config{
-			ClientID:    "",
-			RedirectURL: "",
+			ClientID:     "client-id",
+			ClientSecret: "client-secret",
+			RedirectURL:  "http://localhost:8080/callback",
+			Endpoint: oauth2.Endpoint{
+				AuthURL:  "https://accounts.google.com/o/oauth2/auth",
+				TokenURL: "https://oauth2.googleapis.com/token",
+			},
 		},
 	}
 
-	mockRedis.On("Get", "state123").Return(storedState, nil).Once()
-	mockSerializer.On("Decode", storedState, mock.Anything).Return(nil).Once()
-	mockConfigsInterface.On("GetProviderConfig", mock.Anything, config.config).Return(oauth2Provider, nil).Once()
-	mockOIDCClient.On("NewProvider", r.Context(), mock.Anything).Return(oauth2Provider, nil).Once()
-	mockOauth2Client.On("Exchange", r.Context(), "code123", mock.Anything).Return(token, nil).Once()
-	mockOauth2Client.On("Extra", "id_token", token).Return(rawIDToken).Once()
-	mockOIDCClient.On("Verifier", mock.Anything).Return(verifierObj).Once()
-	mockOIDCClient.On("Verify", r.Context(), verifierObj, rawIDToken).Return(idToken, nil).Once()
-	mockOIDCClient.On("VerifyAccessToken", idToken, token.AccessToken).Return(nil).Once()
-	mockOIDCClient.On("Claims", idToken, mock.AnythingOfType("*internal.UserClaims")).Return(nil).Once()
+	mockRedis.On("Get", "state123").Return(storedState, nil)
+	mockSerializer.On("Decode", storedState, mock.AnythingOfType("*internal.AuthState")).Return(nil)
+	mockConfigsInterface.On("GetProviderConfig", mock.Anything, config.config).Return(oauth2Provider, nil)
+	mockOIDCClient.On("NewProvider", r.Context(), oauth2Provider.Oauth2Issuer).Return(nil)
+	mockOauth2Client.On("Exchange", mock.Anything, "code123", mock.Anything).Return(token, nil)
+	mockOauth2Client.On("Extra", "id_token", token).Return(rawIDToken)
+	mockOIDCClient.On("Verifier", oauth2Provider.Oauth2Config.ClientID).Return(verifierObj)
+	mockOIDCClient.On("Verify", r.Context(), verifierObj, rawIDToken).Return(idToken, nil)
+	mockOIDCClient.On("VerifyAccessToken", idToken, token.AccessToken).Return(nil)
+	mockOIDCClient.On("Claims", idToken, mock.AnythingOfType("*internal.UserProfile")).Return(nil)
+	mockOIDCClient.On("IsEmailVerified", mock.Anything).Return(true)
 
 	tokenBytes := []byte("serialized-token")
-	mockSerializer.On("Encode", token).Return(tokenBytes, nil).Once()
-	mockEncryptor.On("Encrypt", tokenBytes).Return("encrypted-token", nil).Once()
+	mockSerializer.On("Encode", token).Return(tokenBytes, nil)
+	mockEncryptor.On("Encrypt", tokenBytes).Return("encrypted-token", nil)
 
 	config.HandleLoginCallback(w, r)
 
@@ -130,7 +136,7 @@ func TestLoginCallback_WhenValidStateAndCode_ShouldSetAccessTokenCookie(t *testi
 	assert.Equal(t, "/success", w.Header().Get("Location"))
 
 	cookie := w.Result().Cookies()[0]
-	assert.Equal(t, "access_token", cookie.Name)
+	assert.Equal(t, "session_token", cookie.Name)
 	assert.Equal(t, "encrypted-token", cookie.Value)
 
 	mockRedis.AssertExpectations(t)
@@ -138,6 +144,7 @@ func TestLoginCallback_WhenValidStateAndCode_ShouldSetAccessTokenCookie(t *testi
 	mockOIDCClient.AssertExpectations(t)
 	mockSerializer.AssertExpectations(t)
 	mockEncryptor.AssertExpectations(t)
+	mockConfigsInterface.AssertExpectations(t)
 }
 
 func TestRefreshToken_WhenValidAccessToken_ShouldRefreshAndUpdateCookie(t *testing.T) {

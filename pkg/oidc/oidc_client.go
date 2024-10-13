@@ -12,6 +12,7 @@ type OIDCClient interface {
 	Claims(idToken *oidc.IDToken, v interface{}) error
 	VerifyAccessToken(idToken *oidc.IDToken, accessToken string) error
 	NewProvider(ctx context.Context, issuer string) error
+	IsEmailVerified(isVerified bool) bool
 }
 
 type OIDC struct {
@@ -36,6 +37,10 @@ func (o *OIDC) Claims(idToken *oidc.IDToken, v interface{}) error {
 
 func (o *OIDC) VerifyAccessToken(idToken *oidc.IDToken, accessToken string) error {
 	return idToken.VerifyAccessToken(accessToken)
+}
+
+func (o *OIDC) IsEmailVerified(isVerified bool) bool {
+	return isVerified
 }
 
 func (o *OIDC) NewProvider(ctx context.Context, issuer string) error {

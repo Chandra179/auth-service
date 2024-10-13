@@ -7,7 +7,7 @@ import (
 )
 
 type Oauth2Client interface {
-	Exchange(ctx context.Context, code string, opts ...oauth2.AuthCodeOption) (*oauth2.Token, error)
+	Exchange(ctx context.Context, code string, verifier string) (*oauth2.Token, error)
 	Extra(key string, oauth2Token *oauth2.Token) interface{}
 	S256ChallengeFromVerifier(verifier string) string
 	AuthCodeURL(state string, opts ...oauth2.AuthCodeOption) string
@@ -24,8 +24,9 @@ func NewOauth2Client(cfg *oauth2.Config) *Oauth2 {
 	}
 }
 
-func (o *Oauth2) Exchange(ctx context.Context, code string, opts ...oauth2.AuthCodeOption) (*oauth2.Token, error) {
-	return o.cfg.Exchange(ctx, code, opts...)
+func (o *Oauth2) Exchange(ctx context.Context, code string, verifier string) (*oauth2.Token, error) {
+	opts := oauth2.VerifierOption(verifier)
+	return o.cfg.Exchange(ctx, code, opts)
 }
 
 func (o *Oauth2) Extra(key string, oauth2Token *oauth2.Token) interface{} {
@@ -39,6 +40,7 @@ func (o *Oauth2) S256ChallengeFromVerifier(verifier string) string {
 func (o *Oauth2) AuthCodeURL(state string, opts ...oauth2.AuthCodeOption) string {
 	return o.cfg.AuthCodeURL(state, opts...)
 }
+
 func (o *Oauth2) TokenSource(ctx context.Context, t *oauth2.Token) oauth2.TokenSource {
 	return o.cfg.TokenSource(ctx, t)
 }
