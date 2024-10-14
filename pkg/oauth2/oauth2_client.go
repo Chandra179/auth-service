@@ -81,6 +81,7 @@ func (o *Oauth2) AuthCodeURL(state string, opts ...oauth2.AuthCodeOption) string
 // This can be used to obtain new tokens when the current one expires.
 func (o *Oauth2) Token(ctx context.Context, t *oauth2.Token) (*oauth2.Token, error) {
 	return o.Cfg.TokenSource(ctx, t).Token()
+
 }
 
 // SetConfig sets the OAuth2 configuration for the client.
