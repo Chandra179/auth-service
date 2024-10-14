@@ -270,7 +270,12 @@ func (s *Oauth2Service) RefreshToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	newToken := s.oauth2Client.TokenSource(ctx, &token)
+	newToken, err := s.oauth2Client.Token(ctx, &token)
+	if err != nil {
+		http.Error(w, "Failed to get token", http.StatusInternalServerError)
+		return
+	}
+
 	encodedToken, err := s.serializer.Encode(newToken)
 	if err != nil {
 		http.Error(w, "Failed to serialize token", http.StatusInternalServerError)

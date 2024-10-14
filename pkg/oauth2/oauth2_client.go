@@ -34,8 +34,8 @@ type Oauth2Client interface {
 	// AuthCodeURL generates the URL for the authorization code flow with the specified state and options.
 	AuthCodeURL(state string, opts ...oauth2.AuthCodeOption) string
 
-	// TokenSource returns a TokenSource for the given OAuth2 token.
-	TokenSource(ctx context.Context, t *oauth2.Token) oauth2.TokenSource
+	// Token returns a Token for the given OAuth2 token.
+	Token(ctx context.Context, t *oauth2.Token) (*oauth2.Token, error)
 
 	// SetConfig sets the OAuth2 configuration for the client.
 	// We need to set the oauth configuration first before calling other method
@@ -77,10 +77,11 @@ func (o *Oauth2) AuthCodeURL(state string, opts ...oauth2.AuthCodeOption) string
 	return o.Cfg.AuthCodeURL(state, opts...)
 }
 
-// TokenSource returns a TokenSource for the given OAuth2 token.
+// Token returns a Token for the given OAuth2 token.
 // This can be used to obtain new tokens when the current one expires.
-func (o *Oauth2) TokenSource(ctx context.Context, t *oauth2.Token) oauth2.TokenSource {
-	return o.Cfg.TokenSource(ctx, t)
+func (o *Oauth2) Token(ctx context.Context, t *oauth2.Token) (*oauth2.Token, error) {
+	return o.Cfg.TokenSource(ctx, t).Token()
+
 }
 
 // SetConfig sets the OAuth2 configuration for the client.
