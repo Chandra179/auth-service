@@ -145,3 +145,71 @@ func TestLoginCallback_WhenValidStateAndCode_ShouldSetAccessTokenCookie(t *testi
 	mockEncryptor.AssertExpectations(t)
 	mockConfigsInterface.AssertExpectations(t)
 }
+
+func TestRefreshToken_WhenValidSessionToken_ShouldSetNewAccessTokenCookie(t *testing.T) {
+	// Setup
+	mockOauth2Client := &oauth2mock.MockOauth2Client{}
+	mockSerializer := &serializer.MockSerialization{}
+	mockEncryptor := &encryption.MockAesEncryptor{}
+
+	service := &Oauth2Service{
+		oauth2Client: mockOauth2Client,
+		serializer:   mockSerializer,
+		encryptor:    mockEncryptor,
+	}
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/refresh", nil)
+
+	// Set up the existing session token
+	existingToken := &oauth2.Token{
+		AccessToken:  "old-access-token",
+		RefreshToken: "refresh-token",
+		Expiry:       time.Now().Add(-1 * time.Hour), // Expired token
+	}
+	encryptedExistingToken := "encrypted-existing-token"
+	serializedExistingToken := []byte("serialized-existing-token")
+
+	// Set up the new token after refresh
+	newToken := &oauth2.Token{
+		AccessToken:  "new-access-token",
+		RefreshToken: "new-refresh-token",
+		Expiry:       time.Now().Add(1 * time.Hour),
+	}
+	serializedNewToken := []byte("serialized-new-token")
+	encryptedNewToken := "encrypted-new-token"
+
+	// Set the cookie in the request
+	r.AddCookie(&http.Cookie{
+		Name:  "session_token",
+		Value: encryptedExistingToken,
+	})
+
+	// Mock expectations
+	mockEncryptor.On("Decrypt", encryptedExistingToken).Return(serializedExistingToken, nil)
+	mockSerializer.On("Decode", serializedExistingToken, mock.AnythingOfType("*oauth2.Token")).Run(func(args mock.Arguments) {
+		arg := args.Get(1).(*oauth2.Token)
+		*arg = *existingToken
+	}).Return(nil)
+
+	mockOauth2Client.On("Token", mock.Anything, mock.Anything).Return(newToken, nil)
+	mockSerializer.On("Encode", newToken).Return(serializedNewToken, nil)
+	mockEncryptor.On("Encrypt", serializedNewToken).Return(encryptedNewToken, nil)
+
+	// Act
+	service.RefreshToken(w, r)
+
+	// Assert
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	// Check if a new cookie was set with the refreshed token
+	cookies := w.Result().Cookies()
+	assert.Len(t, cookies, 1)
+	assert.Equal(t, "session_token", cookies[0].Name)
+	assert.Equal(t, encryptedNewToken, cookies[0].Value)
+
+	// Verify mock expectations
+	mockEncryptor.AssertExpectations(t)
+	mockSerializer.AssertExpectations(t)
+	mockOauth2Client.AssertExpectations(t)
+}

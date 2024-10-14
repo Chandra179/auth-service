@@ -31,9 +31,9 @@ func (m *MockOauth2Client) Extra(key string, token *oauth2.Token) interface{} {
 	return args.Get(0)
 }
 
-func (m *MockOauth2Client) TokenSource(ctx context.Context, t *oauth2.Token) oauth2.TokenSource {
+func (m *MockOauth2Client) Token(ctx context.Context, t *oauth2.Token) (*oauth2.Token, error) {
 	args := m.Called(ctx, t)
-	return args.Get(0).(oauth2.TokenSource)
+	return args.Get(0).(*oauth2.Token), args.Error(1)
 }
 
 func (m *MockOauth2Client) SetConfig(cfg *oauth2.Config) {
